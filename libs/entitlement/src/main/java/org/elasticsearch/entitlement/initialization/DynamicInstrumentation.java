@@ -179,8 +179,8 @@ class DynamicInstrumentation {
             instrumentation.of("setAttribute", Path.class, String.class, Object.class, LinkOption[].class)
         );
 
-        if (Runtime.version().feature() >= 20) {
-            var java20EntitlementCheckerClass = EntitlementCheckerUtils.getVersionSpecificCheckerClass(EntitlementChecker.class, 20);
+        if (Runtime.version().feature() >= 21) {
+            var java20EntitlementCheckerClass = EntitlementCheckerUtils.getVersionSpecificCheckerClass(EntitlementChecker.class, 21);
             var java20Methods = Stream.of(
                 INSTRUMENTATION_SERVICE.lookupImplementationMethod(
                     FileSystemProvider.class,
