@@ -21,7 +21,7 @@ public class LocalStateIvfPqVectors extends LocalStateCompositeXPackPlugin {
 
     public LocalStateIvfPqVectors(Settings settings) {
         super(settings, null);
-        ivfPqPlugin = new IvfPqVectorsPlugin();
+        ivfPqPlugin = new IvfPqVectorsPlugin(settings);
     }
 
     @Override
