@@ -133,6 +133,8 @@ public class IvfPqVectorsReader extends KnnVectorsReader {
                 int nlistRead = metaIn.readVInt();
                 int mRead = metaIn.readVInt();
                 int nbitsRead = metaIn.readVInt();
+                int ksub = metaIn.readVInt();
+                int dsub = dimension / mRead;
 
                 // Read centroids
                 float[][] centroids = new float[nlistRead][dimension];
@@ -141,10 +143,6 @@ public class IvfPqVectorsReader extends KnnVectorsReader {
                         centroids[c][d] = Float.intBitsToFloat(metaIn.readInt());
                     }
                 }
-
-                // Read PQ codebooks
-                int ksub = 1 << nbitsRead;
-                int dsub = dimension / mRead;
                 float[][][] codebooks = new float[mRead][ksub][dsub];
                 for (int sub = 0; sub < mRead; sub++) {
                     for (int code = 0; code < ksub; code++) {

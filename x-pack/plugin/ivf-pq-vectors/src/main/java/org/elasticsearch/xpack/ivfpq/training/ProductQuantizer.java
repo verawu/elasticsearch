@@ -35,7 +35,8 @@ public class ProductQuantizer {
             float[][] subVectors = extractSubspace(vectors, sub, dsub);
             codebooks[sub] = KMeans.train(subVectors, ksub, maxIters, random);
         }
-        return new ProductQuantizer(m, ksub, dsub, codebooks);
+        int actualKsub = codebooks[0].length;
+        return new ProductQuantizer(m, actualKsub, dsub, codebooks);
     }
 
     public byte[] encode(float[] vector) {

@@ -216,6 +216,7 @@ public class IvfPqVectorsWriter extends KnnVectorsWriter {
         meta.writeVInt(effectiveNlist);
         meta.writeVInt(effectiveM);
         meta.writeVInt(nbits);
+        meta.writeVInt(pq.getKsub());
 
         // Centroids
         for (int c = 0; c < effectiveNlist; c++) {

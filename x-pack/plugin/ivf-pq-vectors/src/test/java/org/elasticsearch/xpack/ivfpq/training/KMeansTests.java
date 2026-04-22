@@ -87,12 +87,13 @@ public class KMeansTests extends ESTestCase {
         int[] assignments = KMeans.assign(vectors, centroids);
         // Vectors from the same planted cluster should mostly be assigned together
         int correct = 0;
-        for (int i = 0; i < n - 1; i++) {
-            if (i % k == (i + 1) % k && assignments[i] == assignments[i + 1]) {
+        for (int i = 0; i < n; i++) {
+            int plantedCluster = i % k;
+            if (assignments[i] == assignments[plantedCluster]) {
                 correct++;
             }
         }
         // Should get most right (> 80%) with well-separated clusters
-        assertTrue("Expected high clustering accuracy, got " + correct + "/" + (n - k), correct > (n - k) * 0.8);
+        assertTrue("Expected high clustering accuracy, got " + correct + "/" + n, correct > n * 0.8);
     }
 }

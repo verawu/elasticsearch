@@ -133,10 +133,10 @@ public class ProductQuantizerTests extends ESTestCase {
 
         float[][] table = pq.buildDistanceTable(query);
         assertEquals(m, table.length);
-        assertEquals(256, table[0].length);
+        assertEquals(pq.getKsub(), table[0].length);
         // All distances from origin should be non-negative
         for (int sub = 0; sub < m; sub++) {
-            for (int code = 0; code < 256; code++) {
+            for (int code = 0; code < pq.getKsub(); code++) {
                 assertTrue(table[sub][code] >= 0);
             }
         }

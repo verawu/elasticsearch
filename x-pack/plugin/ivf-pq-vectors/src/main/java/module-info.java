@@ -18,4 +18,6 @@ module org.elasticsearch.ivfpq.vectors {
 
     provides org.elasticsearch.features.FeatureSpecification
         with org.elasticsearch.xpack.ivfpq.IvfPqFeatures;
+    provides org.apache.lucene.codecs.KnnVectorsFormat
+        with org.elasticsearch.xpack.ivfpq.codec.IvfPqVectorsFormat;
 }
