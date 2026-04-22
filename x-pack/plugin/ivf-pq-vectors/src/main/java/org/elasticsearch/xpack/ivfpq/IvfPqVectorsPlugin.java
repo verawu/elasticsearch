@@ -7,22 +7,36 @@
 
 package org.elasticsearch.xpack.ivfpq;
 
+import org.elasticsearch.index.mapper.FieldMapper;
 import org.elasticsearch.index.mapper.Mapper;
 import org.elasticsearch.plugins.MapperPlugin;
 import org.elasticsearch.plugins.Plugin;
+import org.elasticsearch.plugins.SearchPlugin;
+import org.elasticsearch.xpack.ivfpq.mapper.IvfPqKnnQueryBuilder;
 import org.elasticsearch.xpack.ivfpq.mapper.IvfPqVectorFieldMapper;
 
+import java.util.List;
 import java.util.Map;
 
 import static org.elasticsearch.index.mapper.FieldMapper.notInMultiFields;
 
-public class IvfPqVectorsPlugin extends Plugin implements MapperPlugin {
+public class IvfPqVectorsPlugin extends Plugin implements MapperPlugin, SearchPlugin {
 
     @Override
     public Map<String, Mapper.TypeParser> getMappers() {
         return Map.of(
             IvfPqVectorFieldMapper.CONTENT_TYPE,
-            new Mapper.TypeParser((n, c) -> new IvfPqVectorFieldMapper.Builder(n), notInMultiFields(IvfPqVectorFieldMapper.CONTENT_TYPE))
+            new FieldMapper.TypeParser(
+                (n, c) -> new IvfPqVectorFieldMapper.Builder(n),
+                notInMultiFields(IvfPqVectorFieldMapper.CONTENT_TYPE)
+            )
+        );
+    }
+
+    @Override
+    public List<QuerySpec<?>> getQueries() {
+        return List.of(
+            new QuerySpec<>(IvfPqKnnQueryBuilder.NAME, IvfPqKnnQueryBuilder::new, IvfPqKnnQueryBuilder::fromXContent)
         );
     }
 }

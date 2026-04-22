@@ -13,11 +13,13 @@ import org.apache.lucene.index.ByteVectorValues;
 import org.apache.lucene.index.FieldInfo;
 import org.apache.lucene.index.FieldInfos;
 import org.apache.lucene.index.FloatVectorValues;
+import org.apache.lucene.index.IndexFileNames;
 import org.apache.lucene.index.SegmentReadState;
 import org.apache.lucene.index.VectorEncoding;
 import org.apache.lucene.index.VectorSimilarityFunction;
 import org.apache.lucene.search.DocIdSetIterator;
 import org.apache.lucene.search.KnnCollector;
+import org.apache.lucene.search.VectorScorer;
 import org.apache.lucene.store.ChecksumIndexInput;
 import org.apache.lucene.store.IOContext;
 import org.apache.lucene.store.IndexInput;
@@ -49,12 +51,12 @@ public class IvfPqVectorsReader extends KnnVectorsReader {
         boolean success = false;
         IndexInput dataInput = null;
         try {
-            String metaFileName = IndexInput.getSegmentFileName(
+            String metaFileName = IndexFileNames.segmentFileName(
                 state.segmentInfo.name,
                 state.segmentSuffix,
                 META_EXTENSION
             );
-            try (ChecksumIndexInput metaIn = state.directory.openChecksumInput(metaFileName)) {
+            try (ChecksumIndexInput metaIn = state.directory.openChecksumInput(metaFileName, state.context)) {
                 CodecUtil.checkIndexHeader(
                     metaIn,
                     META_CODEC_NAME,
@@ -67,7 +69,7 @@ public class IvfPqVectorsReader extends KnnVectorsReader {
                 CodecUtil.checkFooter(metaIn);
             }
 
-            String dataFileName = IndexInput.getSegmentFileName(
+            String dataFileName = IndexFileNames.segmentFileName(
                 state.segmentInfo.name,
                 state.segmentSuffix,
                 DATA_EXTENSION
@@ -362,6 +364,20 @@ public class IvfPqVectorsReader extends KnnVectorsReader {
     }
 
     @Override
+    public long ramBytesUsed() {
+        long bytes = 0;
+        for (FieldEntry entry : fields.values()) {
+            if (entry.centroids != null) {
+                bytes += (long) entry.nlist * entry.dimension * Float.BYTES;
+            }
+            if (entry.quantizer != null) {
+                bytes += (long) entry.m * entry.quantizer.getKsub() * entry.quantizer.getDsub() * Float.BYTES;
+            }
+        }
+        return bytes;
+    }
+
+    @Override
     public void close() throws IOException {
         IOUtils.close(data);
     }
@@ -447,7 +463,6 @@ public class IvfPqVectorsReader extends KnnVectorsReader {
             return docId;
         }
 
-        @Override
         public float[] vectorValue(int ord) throws IOException {
             long baseOffset = entry.rawVectorDataOffset;
             int bytesPerEntry = Integer.BYTES + entry.dimension * Float.BYTES;

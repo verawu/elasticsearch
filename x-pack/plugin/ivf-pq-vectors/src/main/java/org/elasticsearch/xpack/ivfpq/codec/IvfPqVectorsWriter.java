@@ -12,6 +12,7 @@ import org.apache.lucene.codecs.KnnFieldVectorsWriter;
 import org.apache.lucene.codecs.KnnVectorsWriter;
 import org.apache.lucene.index.FieldInfo;
 import org.apache.lucene.index.FloatVectorValues;
+import org.apache.lucene.index.IndexFileNames;
 import org.apache.lucene.index.MergeState;
 import org.apache.lucene.index.SegmentWriteState;
 import org.apache.lucene.index.Sorter;
@@ -57,7 +58,7 @@ public class IvfPqVectorsWriter extends KnnVectorsWriter {
 
         boolean success = false;
         try {
-            String metaFileName = IndexOutput.getSegmentFileName(
+            String metaFileName = IndexFileNames.segmentFileName(
                 state.segmentInfo.name,
                 state.segmentSuffix,
                 META_EXTENSION
@@ -65,7 +66,7 @@ public class IvfPqVectorsWriter extends KnnVectorsWriter {
             meta = state.directory.createOutput(metaFileName, state.context);
             CodecUtil.writeIndexHeader(meta, META_CODEC_NAME, VERSION_CURRENT, state.segmentInfo.getId(), state.segmentSuffix);
 
-            String dataFileName = IndexOutput.getSegmentFileName(
+            String dataFileName = IndexFileNames.segmentFileName(
                 state.segmentInfo.name,
                 state.segmentSuffix,
                 DATA_EXTENSION
@@ -180,7 +181,7 @@ public class IvfPqVectorsWriter extends KnnVectorsWriter {
         }
 
         // Build per-cluster inverted lists
-        @SuppressWarnings("unchecked")
+        @SuppressWarnings({ "unchecked", "rawtypes" })
         List<Integer>[] clusterMembers = new List[effectiveNlist];
         for (int c = 0; c < effectiveNlist; c++) {
             clusterMembers[c] = new ArrayList<>();
@@ -248,7 +249,7 @@ public class IvfPqVectorsWriter extends KnnVectorsWriter {
 
     @Override
     public void mergeOneField(FieldInfo fieldInfo, MergeState mergeState) throws IOException {
-        FloatVectorValues mergedValues = MergedVectorValues.mergeFloatVectorValues(fieldInfo, mergeState);
+        FloatVectorValues mergedValues = KnnVectorsWriter.MergedVectorValues.mergeFloatVectorValues(fieldInfo, mergeState);
 
         List<float[]> vectorsList = new ArrayList<>();
         List<Integer> docIdsList = new ArrayList<>();

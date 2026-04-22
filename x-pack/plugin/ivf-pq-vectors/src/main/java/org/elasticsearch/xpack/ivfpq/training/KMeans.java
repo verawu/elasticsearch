@@ -133,7 +133,7 @@ public class KMeans {
         }
     }
 
-    static float squaredL2(float[] a, float[] b) {
+    public static float squaredL2(float[] a, float[] b) {
         float sum = 0;
         for (int i = 0; i < a.length; i++) {
             float diff = a[i] - b[i];
