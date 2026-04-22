@@ -12,6 +12,7 @@ import org.apache.lucene.codecs.KnnVectorsReader;
 import org.apache.lucene.codecs.KnnVectorsWriter;
 import org.apache.lucene.document.KnnFloatVectorField;
 import org.apache.lucene.index.IndexableField;
+import org.apache.lucene.search.FieldExistsQuery;
 import org.apache.lucene.index.SegmentReadState;
 import org.apache.lucene.index.SegmentWriteState;
 import org.apache.lucene.index.VectorSimilarityFunction;
@@ -93,11 +94,18 @@ public class IvfPqVectorFieldMapper extends FieldMapper implements KnnVectorsFor
     }
 
     @Override
+    public boolean parsesArrayValue() {
+        return true;
+    }
+
+    @Override
     protected void parseCreateField(DocumentParserContext context) throws IOException {
         XContentParser parser = context.parser();
+        if (parser.currentToken() == XContentParser.Token.VALUE_NULL) {
+            return;
+        }
         float[] vector = new float[dims];
         int i = 0;
-        parser.nextToken(); // START_ARRAY
         while (parser.nextToken() != XContentParser.Token.END_ARRAY) {
             if (i >= dims) {
                 throw new IllegalArgumentException("Vector has more than [" + dims + "] dimensions");
@@ -154,6 +162,11 @@ public class IvfPqVectorFieldMapper extends FieldMapper implements KnnVectorsFor
         @Override
         public ValueFetcher valueFetcher(SearchExecutionContext context, String format) {
             return SourceValueFetcher.identity(name(), context, format);
+        }
+
+        @Override
+        public Query existsQuery(SearchExecutionContext context) {
+            return new FieldExistsQuery(name());
         }
 
         @Override

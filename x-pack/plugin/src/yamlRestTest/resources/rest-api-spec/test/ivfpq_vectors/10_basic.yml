@@ -1,0 +1,108 @@
+setup:
+  - requires:
+      test_runner_features: "headers"
+      cluster_features: ["ivfpq_vectors"]
+      reason: "requires ivfpq_vectors feature"
+
+---
+"Create index with ivfpq_vector and search flat fallback":
+  - do:
+      indices.create:
+        index: ivfpq_flat_test
+        body:
+          mappings:
+            properties:
+              name:
+                type: keyword
+              vector:
+                type: ivfpq_vector
+                dims: 8
+                similarity: l2_norm
+                m: 4
+                nlist: 4
+                nprobe: 4
+                training_threshold: 100
+
+  - do:
+      index:
+        index: ivfpq_flat_test
+        id: "1"
+        body:
+          name: "doc1"
+          vector: [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+  - do:
+      index:
+        index: ivfpq_flat_test
+        id: "2"
+        body:
+          name: "doc2"
+          vector: [0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+  - do:
+      index:
+        index: ivfpq_flat_test
+        id: "3"
+        body:
+          name: "doc3"
+          vector: [0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+  - do:
+      indices.refresh: {}
+
+  - do:
+      search:
+        index: ivfpq_flat_test
+        body:
+          query:
+            ivfpq_knn:
+              field: vector
+              query_vector: [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+              k: 2
+              num_candidates: 10
+
+  - match: { hits.total.value: 2 }
+  - match: { hits.hits.0._id: "1" }
+
+---
+"Validation - dims not divisible by m":
+  - do:
+      catch: /dims.*must be divisible by m/
+      indices.create:
+        index: bad_test
+        body:
+          mappings:
+            properties:
+              vector:
+                type: ivfpq_vector
+                dims: 10
+                m: 3
+
+---
+"Validation - nprobe exceeds nlist":
+  - do:
+      catch: /nprobe.*must be.*nlist/
+      indices.create:
+        index: bad_test2
+        body:
+          mappings:
+            properties:
+              vector:
+                type: ivfpq_vector
+                dims: 8
+                nlist: 4
+                nprobe: 8
+
+---
+"Validation - invalid nbits":
+  - do:
+      catch: /Only nbits=8/
+      indices.create:
+        index: bad_test3
+        body:
+          mappings:
+            properties:
+              vector:
+                type: ivfpq_vector
+                dims: 8
+                nbits: 4

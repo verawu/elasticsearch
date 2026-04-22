@@ -11,7 +11,10 @@ import org.apache.lucene.codecs.Codec;
 import org.apache.lucene.codecs.KnnVectorsFormat;
 import org.apache.lucene.codecs.lucene912.Lucene912Codec;
 import org.apache.lucene.document.Document;
+import org.apache.lucene.document.Field;
 import org.apache.lucene.document.KnnFloatVectorField;
+import org.apache.lucene.document.StringField;
+import org.apache.lucene.index.Term;
 import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.FloatVectorValues;
 import org.apache.lucene.index.IndexWriter;
@@ -210,6 +213,90 @@ public class IvfPqVectorsFormatTests extends ESTestCase {
                 FloatVectorValues vectorValues = leafReader.getFloatVectorValues("vec");
                 assertNotNull(vectorValues);
                 assertEquals(nVectorsPerSegment * 2, vectorValues.size());
+            }
+        }
+    }
+
+    public void testDeletedDocsNotInSearchResults() throws IOException {
+        int dims = 16;
+        int nVectors = 200;
+        float[][] vectors = new float[nVectors][dims];
+        Random random = new Random(42);
+        for (int i = 0; i < nVectors; i++) {
+            vectors[i] = randomVector(dims, random);
+        }
+
+        try (Directory dir = newDirectory()) {
+            IndexWriterConfig config = new IndexWriterConfig();
+            config.setCodec(getCodec(8, 8, 4, 8, 50));
+            try (IndexWriter writer = new IndexWriter(dir, config)) {
+                for (int i = 0; i < nVectors; i++) {
+                    Document doc = new Document();
+                    doc.add(new StringField("id", String.valueOf(i), Field.Store.YES));
+                    doc.add(new KnnFloatVectorField("vec", vectors[i], VectorSimilarityFunction.EUCLIDEAN));
+                    writer.addDocument(doc);
+                }
+                writer.commit();
+
+                for (int i = 0; i < 10; i++) {
+                    writer.deleteDocuments(new Term("id", String.valueOf(i)));
+                }
+                writer.forceMerge(1);
+                writer.commit();
+            }
+
+            try (DirectoryReader reader = DirectoryReader.open(dir)) {
+                IndexSearcher searcher = new IndexSearcher(reader);
+                float[] query = vectors[0];
+                TopDocs topDocs = searcher.search(new KnnFloatVectorQuery("vec", query, 10), 10);
+
+                for (var sd : topDocs.scoreDocs) {
+                    Document doc = searcher.storedFields().document(sd.doc);
+                    int docId = Integer.parseInt(doc.get("id"));
+                    assertTrue("Deleted doc " + docId + " should not appear in results", docId >= 10);
+                }
+            }
+        }
+    }
+
+    public void testDeletedDocsNotInSearchResultsFlat() throws IOException {
+        int dims = 8;
+        int nVectors = 20;
+        float[][] vectors = new float[nVectors][dims];
+        Random random = new Random(42);
+        for (int i = 0; i < nVectors; i++) {
+            vectors[i] = randomVector(dims, random);
+        }
+
+        try (Directory dir = newDirectory()) {
+            IndexWriterConfig config = new IndexWriterConfig();
+            config.setCodec(getCodec(8, 8, 2, 8, 100));
+            try (IndexWriter writer = new IndexWriter(dir, config)) {
+                for (int i = 0; i < nVectors; i++) {
+                    Document doc = new Document();
+                    doc.add(new StringField("id", String.valueOf(i), Field.Store.YES));
+                    doc.add(new KnnFloatVectorField("vec", vectors[i], VectorSimilarityFunction.EUCLIDEAN));
+                    writer.addDocument(doc);
+                }
+                writer.commit();
+
+                for (int i = 0; i < 5; i++) {
+                    writer.deleteDocuments(new Term("id", String.valueOf(i)));
+                }
+                writer.forceMerge(1);
+                writer.commit();
+            }
+
+            try (DirectoryReader reader = DirectoryReader.open(dir)) {
+                IndexSearcher searcher = new IndexSearcher(reader);
+                float[] query = vectors[0];
+                TopDocs topDocs = searcher.search(new KnnFloatVectorQuery("vec", query, 5), 5);
+
+                for (var sd : topDocs.scoreDocs) {
+                    Document doc = searcher.storedFields().document(sd.doc);
+                    int docId = Integer.parseInt(doc.get("id"));
+                    assertTrue("Deleted doc " + docId + " should not appear in results", docId >= 5);
+                }
             }
         }
     }

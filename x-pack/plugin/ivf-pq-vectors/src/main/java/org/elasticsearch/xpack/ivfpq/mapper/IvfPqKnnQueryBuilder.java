@@ -31,7 +31,6 @@ import java.util.Objects;
 public class IvfPqKnnQueryBuilder extends AbstractQueryBuilder<IvfPqKnnQueryBuilder> {
 
     public static final String NAME = "ivfpq_knn";
-
     private static final ParseField FIELD_FIELD = new ParseField("field");
     private static final ParseField QUERY_VECTOR_FIELD = new ParseField("query_vector");
     private static final ParseField K_FIELD = new ParseField("k");
@@ -71,6 +70,22 @@ public class IvfPqKnnQueryBuilder extends AbstractQueryBuilder<IvfPqKnnQueryBuil
 
     public static IvfPqKnnQueryBuilder fromXContent(XContentParser parser) throws IOException {
         return PARSER.parse(parser, null);
+    }
+
+    public String getField() {
+        return field;
+    }
+
+    public float[] getQueryVector() {
+        return queryVector;
+    }
+
+    public int getK() {
+        return k;
+    }
+
+    public int getNumCandidates() {
+        return numCandidates;
     }
 
     private void setField(String field) {
