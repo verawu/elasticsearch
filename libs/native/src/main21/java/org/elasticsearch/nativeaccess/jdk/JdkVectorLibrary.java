@@ -31,6 +31,8 @@ public final class JdkVectorLibrary implements VectorLibrary {
 
     static final MethodHandle dot7u$mh;
     static final MethodHandle sqr7u$mh;
+    static final MethodHandle dot7u_batch$mh;
+    static final MethodHandle sqr7u_batch$mh;
 
     static final VectorSimilarityFunctions INSTANCE;
 
@@ -42,6 +44,7 @@ public final class JdkVectorLibrary implements VectorLibrary {
             int caps = (int) vecCaps$mh.invokeExact();
             logger.info("vec_caps=" + caps);
             if (caps > 0) {
+                var batchDesc = FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_INT, JAVA_INT, JAVA_INT, ADDRESS);
                 if (caps == 2) {
                     dot7u$mh = downcallHandle(
                         "dot7u_2",
@@ -53,6 +56,8 @@ public final class JdkVectorLibrary implements VectorLibrary {
                         FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS, JAVA_INT),
                         LinkerHelperUtil.critical()
                     );
+                    dot7u_batch$mh = downcallHandle("dot7u_batch_2", batchDesc, LinkerHelperUtil.critical());
+                    sqr7u_batch$mh = downcallHandle("sqr7u_batch_2", batchDesc, LinkerHelperUtil.critical());
                 } else {
                     dot7u$mh = downcallHandle(
                         "dot7u",
@@ -64,6 +69,8 @@ public final class JdkVectorLibrary implements VectorLibrary {
                         FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS, JAVA_INT),
                         LinkerHelperUtil.critical()
                     );
+                    dot7u_batch$mh = downcallHandle("dot7u_batch", batchDesc, LinkerHelperUtil.critical());
+                    sqr7u_batch$mh = downcallHandle("sqr7u_batch", batchDesc, LinkerHelperUtil.critical());
                 }
                 INSTANCE = new JdkVectorSimilarityFunctions();
             } else {
@@ -74,6 +81,8 @@ public final class JdkVectorLibrary implements VectorLibrary {
                 }
                 dot7u$mh = null;
                 sqr7u$mh = null;
+                dot7u_batch$mh = null;
+                sqr7u_batch$mh = null;
                 INSTANCE = null;
             }
         } catch (Throwable t) {
@@ -145,8 +154,42 @@ public final class JdkVectorLibrary implements VectorLibrary {
             }
         }
 
+        static void dotProductBatch7u(
+            MemorySegment query,
+            MemorySegment docs,
+            int dims,
+            int stride,
+            int count,
+            MemorySegment results
+        ) {
+            assert dims >= 0 && stride >= dims && count >= 0;
+            try {
+                JdkVectorLibrary.dot7u_batch$mh.invokeExact(query, docs, dims, stride, count, results);
+            } catch (Throwable t) {
+                throw new AssertionError(t);
+            }
+        }
+
+        static void squareDistanceBatch7u(
+            MemorySegment query,
+            MemorySegment docs,
+            int dims,
+            int stride,
+            int count,
+            MemorySegment results
+        ) {
+            assert dims >= 0 && stride >= dims && count >= 0;
+            try {
+                JdkVectorLibrary.sqr7u_batch$mh.invokeExact(query, docs, dims, stride, count, results);
+            } catch (Throwable t) {
+                throw new AssertionError(t);
+            }
+        }
+
         static final MethodHandle DOT_HANDLE_7U;
         static final MethodHandle SQR_HANDLE_7U;
+        static final MethodHandle DOT_BATCH_HANDLE_7U;
+        static final MethodHandle SQR_BATCH_HANDLE_7U;
 
         static {
             try {
@@ -154,6 +197,17 @@ public final class JdkVectorLibrary implements VectorLibrary {
                 var mt = MethodType.methodType(int.class, MemorySegment.class, MemorySegment.class, int.class);
                 DOT_HANDLE_7U = lookup.findStatic(JdkVectorSimilarityFunctions.class, "dotProduct7u", mt);
                 SQR_HANDLE_7U = lookup.findStatic(JdkVectorSimilarityFunctions.class, "squareDistance7u", mt);
+                var batchMt = MethodType.methodType(
+                    void.class,
+                    MemorySegment.class,
+                    MemorySegment.class,
+                    int.class,
+                    int.class,
+                    int.class,
+                    MemorySegment.class
+                );
+                DOT_BATCH_HANDLE_7U = lookup.findStatic(JdkVectorSimilarityFunctions.class, "dotProductBatch7u", batchMt);
+                SQR_BATCH_HANDLE_7U = lookup.findStatic(JdkVectorSimilarityFunctions.class, "squareDistanceBatch7u", batchMt);
             } catch (NoSuchMethodException | IllegalAccessException e) {
                 throw new RuntimeException(e);
             }
@@ -167,6 +221,16 @@ public final class JdkVectorLibrary implements VectorLibrary {
         @Override
         public MethodHandle squareDistanceHandle7u() {
             return SQR_HANDLE_7U;
+        }
+
+        @Override
+        public MethodHandle dotProductBatchHandle7u() {
+            return DOT_BATCH_HANDLE_7U;
+        }
+
+        @Override
+        public MethodHandle squareDistanceBatchHandle7u() {
+            return SQR_BATCH_HANDLE_7U;
         }
     }
 }

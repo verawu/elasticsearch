@@ -485,4 +485,218 @@ public class VectorScorerFactoryTests extends AbstractVectorTestCase {
     };
 
     static final int TIMES = 100; // a loop iteration times
+
+    public void testBatchSimple() throws IOException {
+        assumeTrue("batch scorer only supported on JDK 22+", Runtime.version().feature() >= 22);
+        assumeTrue(notSupportedMsg(), supported());
+        var factory = AbstractVectorTestCase.factory.get();
+        var scalarQuantizer = new ScalarQuantizer(0.1f, 0.9f, (byte) 7);
+
+        try (Directory dir = new MMapDirectory(createTempDir("testBatchSimple"), MMapDirectory.DEFAULT_MAX_CHUNK_SIZE)) {
+            for (var sim : List.of(COSINE, DOT_PRODUCT, EUCLIDEAN, MAXIMUM_INNER_PRODUCT)) {
+                for (int dims : List.of(31, 32, 33)) {
+                    final int size = 8;
+                    float[][] vectors = new float[size][];
+                    byte[][] qVectors = new byte[size][];
+                    float[] corrections = new float[size];
+
+                    String fileName = "testBatchSimple-" + sim + "-" + dims + ".vex";
+                    try (IndexOutput out = dir.createOutput(fileName, IOContext.DEFAULT)) {
+                        for (int i = 0; i < size; i++) {
+                            vectors[i] = new float[dims];
+                            for (int d = 0; d < dims; d++) {
+                                vectors[i][d] = (float) (i * dims + d) / (size * dims);
+                            }
+                            qVectors[i] = new byte[dims];
+                            corrections[i] = quantizeQuery(vectors[i], qVectors[i], VectorSimilarityType.of(sim), scalarQuantizer);
+                            out.writeBytes(qVectors[i], 0, dims);
+                            out.writeBytes(floatToByteArray(corrections[i]), 0, 4);
+                        }
+                    }
+                    try (IndexInput in = dir.openInput(fileName, IOContext.DEFAULT)) {
+                        var values = vectorValues(dims, size, in, VectorSimilarityType.of(sim));
+                        var scorer = factory.getInt7SQVectorScorer(VectorSimilarityType.of(sim), values, vectors[0]).get();
+                        assertThat(scorer.getClass().getName(), scorer instanceof BatchVectorScorer, equalTo(true));
+                        var batchScorer = (BatchVectorScorer) scorer;
+
+                        float[] batchResults = new float[size];
+                        int scored = batchScorer.scoreBatch(0, size, batchResults);
+                        assertThat(scored, equalTo(size));
+
+                        for (int i = 0; i < size; i++) {
+                            float singleResult = scorer.score(i);
+                            assertThat("batch[" + i + "] for " + sim + " dims=" + dims, batchResults[i], equalTo(singleResult));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    public void testBatchRandom() throws IOException {
+        assumeTrue("batch scorer only supported on JDK 22+", Runtime.version().feature() >= 22);
+        assumeTrue(notSupportedMsg(), supported());
+        var factory = AbstractVectorTestCase.factory.get();
+        var scalarQuantizer = new ScalarQuantizer(0.1f, 0.9f, (byte) 7);
+
+        try (Directory dir = new MMapDirectory(createTempDir("testBatchRandom"), MMapDirectory.DEFAULT_MAX_CHUNK_SIZE)) {
+            for (var sim : List.of(COSINE, DOT_PRODUCT, EUCLIDEAN, MAXIMUM_INNER_PRODUCT)) {
+                final int dims = randomIntBetween(1, 4096);
+                final int size = randomIntBetween(2, 100);
+                float[][] vectors = new float[size][];
+                byte[][] qVectors = new byte[size][];
+                float[] corrections = new float[size];
+
+                String fileName = "testBatchRandom-" + sim + "-" + dims + ".vex";
+                logger.info("Testing " + fileName + " size=" + size);
+                try (IndexOutput out = dir.createOutput(fileName, IOContext.DEFAULT)) {
+                    for (int i = 0; i < size; i++) {
+                        vectors[i] = new float[dims];
+                        for (int d = 0; d < dims; d++) {
+                            vectors[i][d] = randomFloat();
+                        }
+                        qVectors[i] = new byte[dims];
+                        corrections[i] = quantizeQuery(vectors[i], qVectors[i], VectorSimilarityType.of(sim), scalarQuantizer);
+                        out.writeBytes(qVectors[i], 0, dims);
+                        out.writeBytes(floatToByteArray(corrections[i]), 0, 4);
+                    }
+                }
+                try (IndexInput in = dir.openInput(fileName, IOContext.DEFAULT)) {
+                    for (int times = 0; times < TIMES; times++) {
+                        int queryIdx = randomIntBetween(0, size - 1);
+                        var values = vectorValues(dims, size, in, VectorSimilarityType.of(sim));
+                        var scorer = factory.getInt7SQVectorScorer(VectorSimilarityType.of(sim), values, vectors[queryIdx]).get();
+                        var batchScorer = (BatchVectorScorer) scorer;
+
+                        int startOrd = randomIntBetween(0, size - 1);
+                        int maxCount = Math.min(size - startOrd, BatchVectorScorer.MAX_BATCH_SIZE);
+                        int count = randomIntBetween(1, maxCount);
+                        float[] batchResults = new float[count];
+                        int scored = batchScorer.scoreBatch(startOrd, count, batchResults);
+
+                        if (scored > 0) {
+                            for (int i = 0; i < scored; i++) {
+                                float singleResult = scorer.score(startOrd + i);
+                                assertThat(
+                                    "batch[" + i + "] ord=" + (startOrd + i) + " for " + sim + " dims=" + dims,
+                                    batchResults[i],
+                                    equalTo(singleResult)
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    public void testBatchSmallChunkSize() throws IOException {
+        assumeTrue("batch scorer only supported on JDK 22+", Runtime.version().feature() >= 22);
+        assumeTrue(notSupportedMsg(), supported());
+        var factory = AbstractVectorTestCase.factory.get();
+        var scalarQuantizer = new ScalarQuantizer(0.1f, 0.9f, (byte) 7);
+
+        long maxChunkSize = 32;
+        try (Directory dir = new MMapDirectory(createTempDir("testBatchSmallChunkSize"), maxChunkSize)) {
+            final int dims = 34;
+            final int size = 8;
+            float[][] vectors = new float[size][];
+            byte[][] qVectors = new byte[size][];
+            float[] corrections = new float[size];
+
+            for (var sim : List.of(COSINE, DOT_PRODUCT, EUCLIDEAN, MAXIMUM_INNER_PRODUCT)) {
+                String fileName = "testBatchSmallChunk-" + sim + "-" + dims + ".vex";
+                try (IndexOutput out = dir.createOutput(fileName, IOContext.DEFAULT)) {
+                    for (int i = 0; i < size; i++) {
+                        vectors[i] = new float[dims];
+                        for (int d = 0; d < dims; d++) {
+                            vectors[i][d] = randomFloat();
+                        }
+                        qVectors[i] = new byte[dims];
+                        corrections[i] = quantizeQuery(vectors[i], qVectors[i], VectorSimilarityType.of(sim), scalarQuantizer);
+                        out.writeBytes(qVectors[i], 0, dims);
+                        out.writeBytes(floatToByteArray(corrections[i]), 0, 4);
+                    }
+                }
+                try (IndexInput in = dir.openInput(fileName, IOContext.DEFAULT)) {
+                    var values = vectorValues(dims, size, in, VectorSimilarityType.of(sim));
+                    var scorer = factory.getInt7SQVectorScorer(VectorSimilarityType.of(sim), values, vectors[0]).get();
+                    var batchScorer = (BatchVectorScorer) scorer;
+
+                    float[] batchResults = new float[size];
+                    int scored = batchScorer.scoreBatch(0, size, batchResults);
+                    // with small chunk size (32) and dims=34, the contiguous range should span multiple
+                    // segments, so scoreBatch should return -1
+                    assertThat("batch should fail with small chunk size for " + sim, scored, equalTo(-1));
+
+                    // individual scoring should still work
+                    for (int i = 0; i < size; i++) {
+                        float score = scorer.score(i);
+                        assertThat(score, greaterThanOrEqualTo(0f));
+                    }
+                }
+            }
+        }
+    }
+
+    public void testBatchBoundaries() throws IOException {
+        assumeTrue("batch scorer only supported on JDK 22+", Runtime.version().feature() >= 22);
+        assumeTrue(notSupportedMsg(), supported());
+        var factory = AbstractVectorTestCase.factory.get();
+        var scalarQuantizer = new ScalarQuantizer(0.1f, 0.9f, (byte) 7);
+
+        try (Directory dir = new MMapDirectory(createTempDir("testBatchBoundaries"), MMapDirectory.DEFAULT_MAX_CHUNK_SIZE)) {
+            for (var sim : List.of(DOT_PRODUCT, EUCLIDEAN, MAXIMUM_INNER_PRODUCT)) {
+                final int dims = 64;
+                final int size = 10;
+                float[][] vectors = new float[size][];
+                byte[][] qVectors = new byte[size][];
+                float[] corrections = new float[size];
+
+                String fileName = "testBatchBoundaries-" + sim + "-" + dims + ".vex";
+                try (IndexOutput out = dir.createOutput(fileName, IOContext.DEFAULT)) {
+                    for (int i = 0; i < size; i++) {
+                        vectors[i] = new float[dims];
+                        for (int d = 0; d < dims; d++) {
+                            vectors[i][d] = randomFloat();
+                        }
+                        qVectors[i] = new byte[dims];
+                        corrections[i] = quantizeQuery(vectors[i], qVectors[i], VectorSimilarityType.of(sim), scalarQuantizer);
+                        out.writeBytes(qVectors[i], 0, dims);
+                        out.writeBytes(floatToByteArray(corrections[i]), 0, 4);
+                    }
+                }
+                try (IndexInput in = dir.openInput(fileName, IOContext.DEFAULT)) {
+                    var values = vectorValues(dims, size, in, VectorSimilarityType.of(sim));
+                    var scorer = factory.getInt7SQVectorScorer(VectorSimilarityType.of(sim), values, vectors[0]).get();
+                    var batchScorer = (BatchVectorScorer) scorer;
+
+                    // batch of 1
+                    float[] results1 = new float[1];
+                    int scored = batchScorer.scoreBatch(0, 1, results1);
+                    if (scored > 0) {
+                        assertThat(results1[0], equalTo(scorer.score(0)));
+                    }
+
+                    // batch ending at last ordinal
+                    float[] resultsEnd = new float[3];
+                    scored = batchScorer.scoreBatch(size - 3, 3, resultsEnd);
+                    if (scored > 0) {
+                        for (int i = 0; i < 3; i++) {
+                            assertThat(resultsEnd[i], equalTo(scorer.score(size - 3 + i)));
+                        }
+                    }
+
+                    // full batch (all ordinals)
+                    float[] resultsAll = new float[size];
+                    scored = batchScorer.scoreBatch(0, size, resultsAll);
+                    if (scored > 0) {
+                        for (int i = 0; i < size; i++) {
+                            assertThat(resultsAll[i], equalTo(scorer.score(i)));
+                        }
+                    }
+                }
+            }
+        }
+    }
 }

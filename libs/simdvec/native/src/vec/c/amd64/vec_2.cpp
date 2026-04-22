@@ -195,6 +195,36 @@ EXPORT int32_t sqr7u_2(int8_t* a, int8_t* b, size_t dims) {
     return res;
 }
 
+extern "C"
+EXPORT void dot7u_batch_2(int8_t* query, int8_t* docs, size_t dims, size_t stride, size_t count, int32_t* results) {
+    for (size_t n = 0; n < count; n++) {
+        int8_t* doc = docs + n * stride;
+        if (n + 2 < count) {
+            _mm_prefetch((const char*)(docs + (n + 2) * stride), _MM_HINT_T0);
+            _mm_prefetch((const char*)(docs + (n + 2) * stride + 64), _MM_HINT_T0);
+            if (dims > 64) {
+                _mm_prefetch((const char*)(docs + (n + 2) * stride + 128), _MM_HINT_T0);
+            }
+        }
+        results[n] = dot7u_2(query, doc, dims);
+    }
+}
+
+extern "C"
+EXPORT void sqr7u_batch_2(int8_t* query, int8_t* docs, size_t dims, size_t stride, size_t count, int32_t* results) {
+    for (size_t n = 0; n < count; n++) {
+        int8_t* doc = docs + n * stride;
+        if (n + 2 < count) {
+            _mm_prefetch((const char*)(docs + (n + 2) * stride), _MM_HINT_T0);
+            _mm_prefetch((const char*)(docs + (n + 2) * stride + 64), _MM_HINT_T0);
+            if (dims > 64) {
+                _mm_prefetch((const char*)(docs + (n + 2) * stride + 128), _MM_HINT_T0);
+            }
+        }
+        results[n] = sqr7u_2(query, doc, dims);
+    }
+}
+
 #ifdef __clang__
 #pragma clang attribute pop
 #elif __GNUC__

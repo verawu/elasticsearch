@@ -132,3 +132,25 @@ EXPORT int32_t sqr7u(int8_t* a, int8_t* b, size_t dims) {
     }
     return res;
 }
+
+EXPORT void dot7u_batch(int8_t* query, int8_t* docs, size_t dims, size_t stride, size_t count, int32_t* results) {
+    for (size_t n = 0; n < count; n++) {
+        int8_t* doc = docs + n * stride;
+        if (n + 2 < count) {
+            __builtin_prefetch(docs + (n + 2) * stride, 0, 3);
+            __builtin_prefetch(docs + (n + 2) * stride + 64, 0, 3);
+        }
+        results[n] = dot7u(query, doc, dims);
+    }
+}
+
+EXPORT void sqr7u_batch(int8_t* query, int8_t* docs, size_t dims, size_t stride, size_t count, int32_t* results) {
+    for (size_t n = 0; n < count; n++) {
+        int8_t* doc = docs + n * stride;
+        if (n + 2 < count) {
+            __builtin_prefetch(docs + (n + 2) * stride, 0, 3);
+            __builtin_prefetch(docs + (n + 2) * stride + 64, 0, 3);
+        }
+        results[n] = sqr7u(query, doc, dims);
+    }
+}

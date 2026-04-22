@@ -20,3 +20,7 @@ EXPORT int vec_caps();
 EXPORT int32_t dot7u(int8_t* a, int8_t* b, size_t dims);
 
 EXPORT int32_t sqr7u(int8_t *a, int8_t *b, size_t length);
+
+EXPORT void dot7u_batch(int8_t* query, int8_t* docs, size_t dims, size_t stride, size_t count, int32_t* results);
+
+EXPORT void sqr7u_batch(int8_t* query, int8_t* docs, size_t dims, size_t stride, size_t count, int32_t* results);
