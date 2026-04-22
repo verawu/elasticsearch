@@ -23,6 +23,7 @@ import org.apache.lucene.util.quantization.RandomAccessQuantizedByteVectorValues
 import org.apache.lucene.util.quantization.ScalarQuantizer;
 import org.elasticsearch.common.logging.LogConfigurator;
 import org.elasticsearch.core.IOUtils;
+import org.elasticsearch.simdvec.BatchVectorScorer;
 import org.elasticsearch.simdvec.VectorScorerFactory;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.BenchmarkMode;
@@ -66,8 +67,11 @@ public class VectorScorerBenchmark {
     int dims;
     int size = 2; // there are only two vectors to compare
 
+    static final int BATCH_SIZE = 32;
+
     Directory dir;
     IndexInput in;
+    IndexInput batchIn;
     VectorScorerFactory factory;
 
     byte[] vec1;
@@ -83,6 +87,10 @@ public class VectorScorerBenchmark {
 
     RandomVectorScorer luceneDotScorerQuery;
     RandomVectorScorer nativeDotScorerQuery;
+
+    RandomVectorScorer nativeDotBatchScorer;
+    RandomVectorScorer nativeSqrBatchScorer;
+    float[] batchResults;
 
     @Setup
     public void setup() throws IOException {
@@ -157,11 +165,27 @@ public class VectorScorerBenchmark {
         if (q1 != q2) {
             throw new AssertionError("query: lucene[" + q1 + "] != " + "native[" + q2 + "]");
         }
+
+        // batch benchmark setup: create BATCH_SIZE vectors in a separate file
+        batchResults = new float[BATCH_SIZE];
+        try (IndexOutput batchOut = dir.createOutput("vector_batch.data", IOContext.DEFAULT)) {
+            for (int i = 0; i < BATCH_SIZE; i++) {
+                byte[] v = new byte[dims];
+                randomInt7BytesBetween(v);
+                batchOut.writeBytes(v, 0, v.length);
+                batchOut.writeInt(Float.floatToIntBits(ThreadLocalRandom.current().nextFloat()));
+            }
+        }
+        batchIn = dir.openInput("vector_batch.data", IOContext.DEFAULT);
+        var batchDotValues = vectorValues(dims, BATCH_SIZE, batchIn, VectorSimilarityFunction.DOT_PRODUCT);
+        nativeDotBatchScorer = factory.getInt7SQVectorScorer(VectorSimilarityFunction.DOT_PRODUCT, batchDotValues, queryVec).get();
+        var batchSqrValues = vectorValues(dims, BATCH_SIZE, batchIn, VectorSimilarityFunction.EUCLIDEAN);
+        nativeSqrBatchScorer = factory.getInt7SQVectorScorer(VectorSimilarityFunction.EUCLIDEAN, batchSqrValues, queryVec).get();
     }
 
     @TearDown
     public void teardown() throws IOException {
-        IOUtils.close(dir, in);
+        IOUtils.close(dir, in, batchIn);
     }
 
     @Benchmark
@@ -215,6 +239,36 @@ public class VectorScorerBenchmark {
         }
         float adjustedDistance = squareDistance * scoreCorrectionConstant;
         return 1 / (1f + adjustedDistance);
+    }
+
+    // -- batch benchmarks: compare single-call loop vs native batch
+
+    @Benchmark
+    public float[] dotProductBatchNative() throws IOException {
+        ((BatchVectorScorer) nativeDotBatchScorer).scoreBatch(0, BATCH_SIZE, batchResults);
+        return batchResults;
+    }
+
+    @Benchmark
+    public float[] dotProductBatchLoop() throws IOException {
+        for (int i = 0; i < BATCH_SIZE; i++) {
+            batchResults[i] = nativeDotBatchScorer.score(i);
+        }
+        return batchResults;
+    }
+
+    @Benchmark
+    public float[] squareDistanceBatchNative() throws IOException {
+        ((BatchVectorScorer) nativeSqrBatchScorer).scoreBatch(0, BATCH_SIZE, batchResults);
+        return batchResults;
+    }
+
+    @Benchmark
+    public float[] squareDistanceBatchLoop() throws IOException {
+        for (int i = 0; i < BATCH_SIZE; i++) {
+            batchResults[i] = nativeSqrBatchScorer.score(i);
+        }
+        return batchResults;
     }
 
     RandomAccessQuantizedByteVectorValues vectorValues(int dims, int size, IndexInput in, VectorSimilarityFunction sim) throws IOException {
