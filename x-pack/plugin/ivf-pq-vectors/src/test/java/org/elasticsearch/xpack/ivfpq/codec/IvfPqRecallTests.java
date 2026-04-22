@@ -96,8 +96,8 @@ public class IvfPqRecallTests extends ESTestCase {
 
                 double avgRecall = totalRecall / nQueries;
                 assertTrue(
-                    "Average recall@" + k + " should be > 0.5, was " + String.format("%.3f", avgRecall),
-                    avgRecall > 0.5
+                    "Average recall@" + k + " should be > 0.7, was " + String.format("%.3f", avgRecall),
+                    avgRecall > 0.7
                 );
             }
         }

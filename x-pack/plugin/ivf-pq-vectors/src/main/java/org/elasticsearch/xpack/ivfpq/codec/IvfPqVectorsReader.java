@@ -9,6 +9,7 @@ package org.elasticsearch.xpack.ivfpq.codec;
 
 import org.apache.lucene.codecs.CodecUtil;
 import org.apache.lucene.codecs.KnnVectorsReader;
+import org.apache.lucene.index.CorruptIndexException;
 import org.apache.lucene.index.ByteVectorValues;
 import org.apache.lucene.index.FieldInfo;
 import org.apache.lucene.index.FieldInfos;
@@ -25,12 +26,15 @@ import org.apache.lucene.store.IOContext;
 import org.apache.lucene.store.IndexInput;
 import org.apache.lucene.util.Bits;
 import org.apache.lucene.util.IOUtils;
+import org.apache.lucene.util.VectorUtil;
 import org.elasticsearch.xpack.ivfpq.training.KMeans;
 import org.elasticsearch.xpack.ivfpq.training.ProductQuantizer;
 
 import java.io.IOException;
-import java.util.Arrays;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import static org.elasticsearch.xpack.ivfpq.codec.IvfPqVectorsFormat.DATA_CODEC_NAME;
@@ -42,7 +46,17 @@ import static org.elasticsearch.xpack.ivfpq.codec.IvfPqVectorsFormat.VERSION_STA
 
 public class IvfPqVectorsReader extends KnnVectorsReader {
 
-    private final Map<String, FieldEntry> fields = new HashMap<>();
+    private static final ThreadLocal<Integer> NPROBE_OVERRIDE = new ThreadLocal<>();
+
+    public static void setNprobeOverride(int nprobe) {
+        NPROBE_OVERRIDE.set(nprobe);
+    }
+
+    public static void clearNprobeOverride() {
+        NPROBE_OVERRIDE.remove();
+    }
+
+    private final Map<String, FieldEntry> fields;
     private final IndexInput data;
     private final int nprobe;
 
@@ -50,6 +64,7 @@ public class IvfPqVectorsReader extends KnnVectorsReader {
         this.nprobe = nprobe;
         boolean success = false;
         IndexInput dataInput = null;
+        Map<String, FieldEntry> tempFields = new HashMap<>();
         try {
             String metaFileName = IndexFileNames.segmentFileName(
                 state.segmentInfo.name,
@@ -65,7 +80,7 @@ public class IvfPqVectorsReader extends KnnVectorsReader {
                     state.segmentInfo.getId(),
                     state.segmentSuffix
                 );
-                readFields(metaIn, state.fieldInfos);
+                readFields(metaIn, state.fieldInfos, tempFields);
                 CodecUtil.checkFooter(metaIn);
             }
 
@@ -84,6 +99,7 @@ public class IvfPqVectorsReader extends KnnVectorsReader {
                 state.segmentSuffix
             );
             this.data = dataInput;
+            this.fields = Collections.unmodifiableMap(tempFields);
             success = true;
         } finally {
             if (success == false) {
@@ -92,12 +108,21 @@ public class IvfPqVectorsReader extends KnnVectorsReader {
         }
     }
 
-    private void readFields(ChecksumIndexInput metaIn, FieldInfos fieldInfos) throws IOException {
+    private void readFields(ChecksumIndexInput metaIn, FieldInfos fieldInfos, Map<String, FieldEntry> fields) throws IOException {
         int fieldNumber;
         while ((fieldNumber = metaIn.readInt()) != -1) {
             FieldInfo fieldInfo = fieldInfos.fieldInfo(fieldNumber);
+            if (fieldInfo == null) {
+                throw new CorruptIndexException("Invalid field number: " + fieldNumber, metaIn);
+            }
             int encodingOrd = metaIn.readInt();
             int similarityOrd = metaIn.readInt();
+            if (encodingOrd < 0 || encodingOrd >= VectorEncoding.values().length) {
+                throw new CorruptIndexException("Invalid vector encoding ordinal: " + encodingOrd, metaIn);
+            }
+            if (similarityOrd < 0 || similarityOrd >= VectorSimilarityFunction.values().length) {
+                throw new CorruptIndexException("Invalid similarity function ordinal: " + similarityOrd, metaIn);
+            }
             VectorEncoding encoding = VectorEncoding.values()[encodingOrd];
             VectorSimilarityFunction similarity = VectorSimilarityFunction.values()[similarityOrd];
             int dimension = metaIn.readVInt();
@@ -194,7 +219,7 @@ public class IvfPqVectorsReader extends KnnVectorsReader {
 
     @Override
     public void checkIntegrity() throws IOException {
-        // Verification done during construction via CodecUtil.checkIndexHeader/checkFooter
+        CodecUtil.checksumEntireFile(data);
     }
 
     @Override
@@ -231,28 +256,31 @@ public class IvfPqVectorsReader extends KnnVectorsReader {
     }
 
     private void searchFlat(FieldEntry entry, float[] target, KnnCollector knnCollector, Bits acceptDocs) throws IOException {
-        IndexInput slice = data.clone();
-        slice.seek(entry.rawVectorDataOffset);
-
-        for (int i = 0; i < entry.vectorCount; i++) {
-            int docId = slice.readInt();
+        try (IndexInput slice = data.clone()) {
+            slice.seek(entry.rawVectorDataOffset);
             float[] vector = new float[entry.dimension];
-            for (int d = 0; d < entry.dimension; d++) {
-                vector[d] = Float.intBitsToFloat(slice.readInt());
-            }
 
-            if (acceptDocs != null && acceptDocs.get(docId) == false) {
-                continue;
-            }
+            for (int i = 0; i < entry.vectorCount; i++) {
+                int docId = slice.readInt();
+                for (int d = 0; d < entry.dimension; d++) {
+                    vector[d] = Float.intBitsToFloat(slice.readInt());
+                }
 
-            float score = score(target, vector, entry.similarity);
-            knnCollector.collect(docId, score);
-            knnCollector.incVisitedCount(1);
+                if (acceptDocs != null && acceptDocs.get(docId) == false) {
+                    continue;
+                }
+
+                float score = score(target, vector, entry.similarity);
+                knnCollector.collect(docId, score);
+                knnCollector.incVisitedCount(1);
+            }
         }
     }
 
     private void searchIvfPq(FieldEntry entry, float[] target, KnnCollector knnCollector, Bits acceptDocs) throws IOException {
-        int effectiveNprobe = Math.min(nprobe, entry.nlist);
+        Integer overrideNprobe = NPROBE_OVERRIDE.get();
+        int baseNprobe = overrideNprobe != null ? overrideNprobe : nprobe;
+        int effectiveNprobe = Math.min(baseNprobe, entry.nlist);
 
         // Find nprobe nearest clusters
         float[] centroidDists = new float[entry.nlist];
@@ -260,77 +288,109 @@ public class IvfPqVectorsReader extends KnnVectorsReader {
             centroidDists[c] = KMeans.squaredL2(target, entry.centroids[c]);
         }
 
-        int[] probeOrder = argsort(centroidDists);
+        int[] probeOrder = topKIndices(centroidDists, effectiveNprobe);
 
-        // Search selected clusters
-        IndexInput clusterData = data.clone();
-        for (int p = 0; p < effectiveNprobe; p++) {
-            int clusterIdx = probeOrder[p];
-            int clusterSize = entry.clusterSizes[clusterIdx];
-            if (clusterSize == 0) {
-                continue;
-            }
-
-            // Compute residual for this cluster's centroid
-            float[] residual = new float[entry.dimension];
-            for (int d = 0; d < entry.dimension; d++) {
-                residual[d] = target[d] - entry.centroids[clusterIdx][d];
-            }
-
-            // Build ADC distance table for this residual
-            float[][] distTable = entry.quantizer.buildDistanceTable(residual);
-
-            // Scan inverted list
-            clusterData.seek(entry.clusterOffsets[clusterIdx]);
-            for (int i = 0; i < clusterSize; i++) {
-                int docId = clusterData.readInt();
-                byte[] pqCodes = new byte[entry.m];
-                clusterData.readBytes(pqCodes, 0, entry.m);
-
-                if (acceptDocs != null && acceptDocs.get(docId) == false) {
+        // Phase 1: collect ADC candidates
+        List<int[]> candidates = new ArrayList<>();
+        try (IndexInput clusterData = data.clone()) {
+            byte[] pqCodes = new byte[entry.m];
+            for (int p = 0; p < effectiveNprobe; p++) {
+                int clusterIdx = probeOrder[p];
+                int clusterSize = entry.clusterSizes[clusterIdx];
+                if (clusterSize == 0) {
                     continue;
                 }
 
-                float approxDist = ProductQuantizer.adcDistance(distTable, pqCodes);
-                float docScore = distToScore(approxDist, entry.similarity);
-                knnCollector.collect(docId, docScore);
-                knnCollector.incVisitedCount(1);
+                float[] residual = new float[entry.dimension];
+                for (int d = 0; d < entry.dimension; d++) {
+                    residual[d] = target[d] - entry.centroids[clusterIdx][d];
+                }
+
+                float[][] distTable = entry.quantizer.buildDistanceTable(residual);
+
+                clusterData.seek(entry.clusterOffsets[clusterIdx]);
+                for (int i = 0; i < clusterSize; i++) {
+                    int docId = clusterData.readInt();
+                    clusterData.readBytes(pqCodes, 0, entry.m);
+
+                    if (acceptDocs != null && acceptDocs.get(docId) == false) {
+                        continue;
+                    }
+
+                    float approxDist = ProductQuantizer.adcDistance(distTable, pqCodes);
+                    candidates.add(new int[] { docId, Float.floatToIntBits(approxDist) });
+                    knnCollector.incVisitedCount(1);
+                }
+            }
+        }
+
+        if (candidates.isEmpty()) {
+            return;
+        }
+
+        // Sort candidates by approximate distance (ascending)
+        candidates.sort((a, b) -> Float.compare(Float.intBitsToFloat(a[1]), Float.intBitsToFloat(b[1])));
+
+        // Phase 2: rerank top candidates with exact vectors
+        int rerankCount = Math.min(candidates.size(), knnCollector.k());
+        int bytesPerEntry = Integer.BYTES + entry.dimension * Float.BYTES;
+        try (IndexInput rawData = data.clone()) {
+            float[] vector = new float[entry.dimension];
+            for (int i = 0; i < rerankCount; i++) {
+                int docId = candidates.get(i)[0];
+                int ord = findOrdinalByDocId(rawData, entry, docId, bytesPerEntry);
+                if (ord >= 0) {
+                    rawData.seek(entry.rawVectorDataOffset + (long) ord * bytesPerEntry + Integer.BYTES);
+                    for (int d = 0; d < entry.dimension; d++) {
+                        vector[d] = Float.intBitsToFloat(rawData.readInt());
+                    }
+                    float exactScore = score(target, vector, entry.similarity);
+                    knnCollector.collect(docId, exactScore);
+                } else {
+                    float docScore = distToScore(Float.intBitsToFloat(candidates.get(i)[1]), entry.similarity);
+                    knnCollector.collect(docId, docScore);
+                }
             }
         }
     }
 
-    private static float score(float[] a, float[] b, VectorSimilarityFunction similarity) {
+    private static int findOrdinalByDocId(IndexInput rawData, FieldEntry entry, int targetDocId, int bytesPerEntry)
+        throws IOException {
+        int lo = 0, hi = entry.vectorCount - 1;
+        while (lo <= hi) {
+            int mid = (lo + hi) >>> 1;
+            rawData.seek(entry.rawVectorDataOffset + (long) mid * bytesPerEntry);
+            int docId = rawData.readInt();
+            if (docId == targetDocId) {
+                return mid;
+            } else if (docId < targetDocId) {
+                lo = mid + 1;
+            } else {
+                hi = mid - 1;
+            }
+        }
+        return -1;
+    }
+
+    static float score(float[] a, float[] b, VectorSimilarityFunction similarity) {
         return switch (similarity) {
             case EUCLIDEAN -> {
-                float dist = 0;
-                for (int i = 0; i < a.length; i++) {
-                    float diff = a[i] - b[i];
-                    dist += diff * diff;
-                }
+                float dist = VectorUtil.squareDistance(a, b);
                 yield 1.0f / (1.0f + dist);
             }
             case DOT_PRODUCT -> {
-                float dot = 0;
-                for (int i = 0; i < a.length; i++) {
-                    dot += a[i] * b[i];
-                }
+                float dot = VectorUtil.dotProduct(a, b);
                 yield (1.0f + dot) / 2.0f;
             }
             case COSINE -> {
-                float dot = 0, normA = 0, normB = 0;
-                for (int i = 0; i < a.length; i++) {
-                    dot += a[i] * b[i];
-                    normA += a[i] * a[i];
-                    normB += b[i] * b[i];
-                }
+                float dot = VectorUtil.dotProduct(a, b);
+                float normA = VectorUtil.dotProduct(a, a);
+                float normB = VectorUtil.dotProduct(b, b);
                 float denom = (float) (Math.sqrt(normA) * Math.sqrt(normB));
                 yield denom == 0 ? 0 : (1.0f + dot / denom) / 2.0f;
             }
             case MAXIMUM_INNER_PRODUCT -> {
-                float dot = 0;
-                for (int i = 0; i < a.length; i++) {
-                    dot += a[i] * b[i];
-                }
+                float dot = VectorUtil.dotProduct(a, b);
                 yield dot >= 0 ? dot + 1.0f : 1.0f / (1.0f - dot);
             }
         };
@@ -348,17 +408,24 @@ public class IvfPqVectorsReader extends KnnVectorsReader {
         };
     }
 
-    private static int[] argsort(float[] values) {
-        Integer[] indices = new Integer[values.length];
-        for (int i = 0; i < indices.length; i++) {
+    private static int[] topKIndices(float[] values, int k) {
+        k = Math.min(k, values.length);
+        int[] indices = new int[values.length];
+        for (int i = 0; i < values.length; i++) {
             indices[i] = i;
         }
-        Arrays.sort(indices, (a, b) -> Float.compare(values[a], values[b]));
-        int[] result = new int[values.length];
-        for (int i = 0; i < values.length; i++) {
-            result[i] = indices[i];
+        for (int i = 0; i < k; i++) {
+            int minIdx = i;
+            for (int j = i + 1; j < values.length; j++) {
+                if (Float.compare(values[indices[j]], values[indices[minIdx]]) < 0) {
+                    minIdx = j;
+                }
+            }
+            int tmp = indices[i];
+            indices[i] = indices[minIdx];
+            indices[minIdx] = tmp;
         }
-        return result;
+        return indices;
     }
 
     @Override
@@ -370,6 +437,12 @@ public class IvfPqVectorsReader extends KnnVectorsReader {
             }
             if (entry.quantizer != null) {
                 bytes += (long) entry.m * entry.quantizer.getKsub() * entry.quantizer.getDsub() * Float.BYTES;
+            }
+            if (entry.clusterOffsets != null) {
+                bytes += (long) entry.clusterOffsets.length * Long.BYTES;
+            }
+            if (entry.clusterSizes != null) {
+                bytes += (long) entry.clusterSizes.length * Integer.BYTES;
             }
         }
         return bytes;
@@ -465,11 +538,14 @@ public class IvfPqVectorsReader extends KnnVectorsReader {
             long baseOffset = entry.rawVectorDataOffset;
             int bytesPerEntry = Integer.BYTES + entry.dimension * Float.BYTES;
             dataInput.seek(baseOffset + (long) ord * bytesPerEntry + Integer.BYTES);
-            float[] vector = new float[entry.dimension];
             for (int d = 0; d < entry.dimension; d++) {
-                vector[d] = Float.intBitsToFloat(dataInput.readInt());
+                scratch[d] = Float.intBitsToFloat(dataInput.readInt());
             }
-            return vector;
+            return scratch;
+        }
+
+        public void close() throws IOException {
+            dataInput.close();
         }
 
         @Override

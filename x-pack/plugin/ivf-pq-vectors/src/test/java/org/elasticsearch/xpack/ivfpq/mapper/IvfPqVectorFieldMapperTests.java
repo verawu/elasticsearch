@@ -223,6 +223,65 @@ public class IvfPqVectorFieldMapperTests extends MapperTestCase {
         assertThat(e.getMessage(), containsString("can't be used in multifields"));
     }
 
+    public void testNaNVector() throws Exception {
+        MapperService mapperService = createMapperService(fieldMapping(b -> {
+            b.field("type", "ivfpq_vector").field("dims", 4).field("m", 4);
+        }));
+        Exception e = expectThrows(org.elasticsearch.index.mapper.DocumentParsingException.class, () -> {
+            mapperService.documentMapper().parse(source(b -> b.field("field", List.of(1.0, Float.NaN, 0.0, 0.0))));
+        });
+        assertThat(e.getCause().getMessage(), containsString("NaN"));
+    }
+
+    public void testInfinityVector() throws Exception {
+        MapperService mapperService = createMapperService(fieldMapping(b -> {
+            b.field("type", "ivfpq_vector").field("dims", 4).field("m", 4);
+        }));
+        Exception e = expectThrows(org.elasticsearch.index.mapper.DocumentParsingException.class, () -> {
+            mapperService.documentMapper()
+                .parse(source(b -> b.field("field", List.of(1.0, Double.POSITIVE_INFINITY, 0.0, 0.0))));
+        });
+        assertThat(e.getCause().getMessage(), containsString("infinite"));
+    }
+
+    public void testZeroMagnitudeCosineVector() throws Exception {
+        MapperService mapperService = createMapperService(fieldMapping(b -> {
+            b.field("type", "ivfpq_vector").field("dims", 4).field("m", 4).field("similarity", "cosine");
+        }));
+        Exception e = expectThrows(org.elasticsearch.index.mapper.DocumentParsingException.class, () -> {
+            mapperService.documentMapper().parse(source(b -> b.field("field", List.of(0.0, 0.0, 0.0, 0.0))));
+        });
+        assertThat(e.getCause().getMessage(), containsString("zero magnitude"));
+    }
+
+    public void testNlistZero() {
+        Exception e = expectThrows(MapperParsingException.class, () -> createMapperService(fieldMapping(b -> {
+            b.field("type", "ivfpq_vector").field("dims", 8).field("nlist", 0);
+        })));
+        assertThat(e.getMessage(), containsString("nlist must be > 0"));
+    }
+
+    public void testMZero() {
+        Exception e = expectThrows(MapperParsingException.class, () -> createMapperService(fieldMapping(b -> {
+            b.field("type", "ivfpq_vector").field("dims", 8).field("m", 0);
+        })));
+        assertThat(e.getMessage(), containsString("m must be > 0"));
+    }
+
+    public void testNprobeZero() {
+        Exception e = expectThrows(MapperParsingException.class, () -> createMapperService(fieldMapping(b -> {
+            b.field("type", "ivfpq_vector").field("dims", 8).field("nprobe", 0);
+        })));
+        assertThat(e.getMessage(), containsString("nprobe must be > 0"));
+    }
+
+    public void testTrainingThresholdZero() {
+        Exception e = expectThrows(MapperParsingException.class, () -> createMapperService(fieldMapping(b -> {
+            b.field("type", "ivfpq_vector").field("dims", 8).field("training_threshold", 0);
+        })));
+        assertThat(e.getMessage(), containsString("training_threshold must be > 0"));
+    }
+
     @Override
     public void testSyntheticSourceKeepArrays() {}
 

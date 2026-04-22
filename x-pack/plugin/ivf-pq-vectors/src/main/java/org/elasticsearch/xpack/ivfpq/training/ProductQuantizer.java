@@ -42,9 +42,7 @@ public class ProductQuantizer {
     public byte[] encode(float[] vector) {
         byte[] codes = new byte[m];
         for (int sub = 0; sub < m; sub++) {
-            float[] subvec = new float[dsub];
-            System.arraycopy(vector, sub * dsub, subvec, 0, dsub);
-            codes[sub] = (byte) KMeans.nearestCentroid(subvec, codebooks[sub]);
+            codes[sub] = (byte) KMeans.nearestCentroid(vector, sub * dsub, dsub, codebooks[sub]);
         }
         return codes;
     }
@@ -52,10 +50,9 @@ public class ProductQuantizer {
     public float[][] buildDistanceTable(float[] query) {
         float[][] table = new float[m][ksub];
         for (int sub = 0; sub < m; sub++) {
-            float[] querySubvec = new float[dsub];
-            System.arraycopy(query, sub * dsub, querySubvec, 0, dsub);
+            int offset = sub * dsub;
             for (int code = 0; code < ksub; code++) {
-                table[sub][code] = KMeans.squaredL2(querySubvec, codebooks[sub][code]);
+                table[sub][code] = KMeans.squaredL2(query, offset, codebooks[sub][code], 0, dsub);
             }
         }
         return table;
@@ -82,7 +79,14 @@ public class ProductQuantizer {
     }
 
     public float[][][] getCodebooks() {
-        return codebooks;
+        float[][][] copy = new float[m][][];
+        for (int sub = 0; sub < m; sub++) {
+            copy[sub] = new float[ksub][];
+            for (int code = 0; code < ksub; code++) {
+                copy[sub][code] = codebooks[sub][code].clone();
+            }
+        }
+        return copy;
     }
 
     private static float[][] extractSubspace(float[][] vectors, int subIndex, int dsub) {

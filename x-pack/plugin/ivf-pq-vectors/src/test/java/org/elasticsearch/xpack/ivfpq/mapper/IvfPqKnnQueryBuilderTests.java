@@ -8,6 +8,7 @@
 package org.elasticsearch.xpack.ivfpq.mapper;
 
 import org.apache.lucene.search.KnnFloatVectorQuery;
+import org.apache.lucene.search.MatchNoDocsQuery;
 import org.apache.lucene.search.Query;
 import org.elasticsearch.common.Strings;
 import org.elasticsearch.common.compress.CompressedXContent;
@@ -69,11 +70,11 @@ public class IvfPqKnnQueryBuilderTests extends AbstractQueryTestCase<IvfPqKnnQue
         assertThat(query, instanceOf(KnnFloatVectorQuery.class));
     }
 
-    public void testNonexistentField() {
+    public void testNonexistentField() throws IOException {
         float[] vector = new float[DIMS];
         IvfPqKnnQueryBuilder qb = new IvfPqKnnQueryBuilder("nonexistent", vector, 10);
-        IllegalArgumentException e = expectThrows(IllegalArgumentException.class, () -> qb.toQuery(createSearchExecutionContext()));
-        assertThat(e.getMessage(), containsString("does not exist in the mapping"));
+        Query query = qb.toQuery(createSearchExecutionContext());
+        assertThat(query, instanceOf(MatchNoDocsQuery.class));
     }
 
     public void testWrongFieldType() throws IOException {
@@ -81,5 +82,38 @@ public class IvfPqKnnQueryBuilderTests extends AbstractQueryTestCase<IvfPqKnnQue
         IvfPqKnnQueryBuilder qb = new IvfPqKnnQueryBuilder("mapped_string", vector, 10);
         IllegalArgumentException e = expectThrows(IllegalArgumentException.class, () -> qb.toQuery(createSearchExecutionContext()));
         assertThat(e.getMessage(), containsString("only supports [ivfpq_vector] fields"));
+    }
+
+    public void testDimensionMismatch() {
+        float[] wrongDimsVector = new float[DIMS + 2];
+        IvfPqKnnQueryBuilder qb = new IvfPqKnnQueryBuilder(VECTOR_FIELD, wrongDimsVector, 10);
+        IllegalArgumentException e = expectThrows(IllegalArgumentException.class, () -> qb.toQuery(createSearchExecutionContext()));
+        assertThat(e.getMessage(), containsString("different dimension"));
+    }
+
+    public void testNaNQueryVector() {
+        float[] vector = new float[DIMS];
+        vector[2] = Float.NaN;
+        IvfPqKnnQueryBuilder qb = new IvfPqKnnQueryBuilder(VECTOR_FIELD, vector, 10);
+        IllegalArgumentException e = expectThrows(IllegalArgumentException.class, () -> qb.toQuery(createSearchExecutionContext()));
+        assertThat(e.getMessage(), containsString("NaN"));
+    }
+
+    public void testInfiniteQueryVector() {
+        float[] vector = new float[DIMS];
+        vector[0] = Float.POSITIVE_INFINITY;
+        IvfPqKnnQueryBuilder qb = new IvfPqKnnQueryBuilder(VECTOR_FIELD, vector, 10);
+        IllegalArgumentException e = expectThrows(IllegalArgumentException.class, () -> qb.toQuery(createSearchExecutionContext()));
+        assertThat(e.getMessage(), containsString("infinite"));
+    }
+
+    public void testKZero() {
+        float[] vector = new float[DIMS];
+        expectThrows(IllegalArgumentException.class, () -> new IvfPqKnnQueryBuilder(VECTOR_FIELD, vector, 0));
+    }
+
+    public void testKNegative() {
+        float[] vector = new float[DIMS];
+        expectThrows(IllegalArgumentException.class, () -> new IvfPqKnnQueryBuilder(VECTOR_FIELD, vector, -1));
     }
 }

@@ -38,6 +38,13 @@ public class IvfPqVectorsFormat extends KnnVectorsFormat {
 
     public IvfPqVectorsFormat(int nlist, int nprobe, int m, int nbits, int trainingThreshold, int kmeansIters) {
         super(NAME);
+        if (nlist <= 0) throw new IllegalArgumentException("nlist must be positive, got " + nlist);
+        if (nprobe <= 0) throw new IllegalArgumentException("nprobe must be positive, got " + nprobe);
+        if (m <= 0) throw new IllegalArgumentException("m must be positive, got " + m);
+        if (nbits <= 0) throw new IllegalArgumentException("nbits must be positive, got " + nbits);
+        if (trainingThreshold <= 0) throw new IllegalArgumentException("trainingThreshold must be positive, got " + trainingThreshold);
+        if (kmeansIters <= 0) throw new IllegalArgumentException("kmeansIters must be positive, got " + kmeansIters);
+        if (nprobe > nlist) throw new IllegalArgumentException("nprobe (" + nprobe + ") must be <= nlist (" + nlist + ")");
         this.nlist = nlist;
         this.nprobe = nprobe;
         this.m = m;

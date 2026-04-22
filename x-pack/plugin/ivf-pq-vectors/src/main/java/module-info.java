@@ -10,6 +10,7 @@ module org.elasticsearch.ivfpq.vectors {
     requires org.elasticsearch.server;
     requires org.apache.lucene.core;
     requires org.elasticsearch.xcontent;
+    requires org.apache.logging.log4j;
 
     exports org.elasticsearch.xpack.ivfpq;
     exports org.elasticsearch.xpack.ivfpq.mapper;

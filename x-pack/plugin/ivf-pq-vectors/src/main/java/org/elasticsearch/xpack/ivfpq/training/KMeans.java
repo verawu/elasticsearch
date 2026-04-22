@@ -7,6 +7,8 @@
 
 package org.elasticsearch.xpack.ivfpq.training;
 
+import org.apache.lucene.util.VectorUtil;
+
 import java.util.Arrays;
 import java.util.Random;
 
@@ -134,11 +136,28 @@ public class KMeans {
     }
 
     public static float squaredL2(float[] a, float[] b) {
+        return VectorUtil.squareDistance(a, b);
+    }
+
+    public static float squaredL2(float[] a, int aOffset, float[] b, int bOffset, int length) {
         float sum = 0;
-        for (int i = 0; i < a.length; i++) {
-            float diff = a[i] - b[i];
+        for (int i = 0; i < length; i++) {
+            float diff = a[aOffset + i] - b[bOffset + i];
             sum += diff * diff;
         }
         return sum;
+    }
+
+    public static int nearestCentroid(float[] vector, int offset, int length, float[][] centroids) {
+        int best = 0;
+        float bestDist = Float.MAX_VALUE;
+        for (int i = 0; i < centroids.length; i++) {
+            float dist = squaredL2(vector, offset, centroids[i], 0, length);
+            if (dist < bestDist) {
+                bestDist = dist;
+                best = i;
+            }
+        }
+        return best;
     }
 }

@@ -17,6 +17,8 @@ import org.apache.lucene.index.SegmentReadState;
 import org.apache.lucene.index.SegmentWriteState;
 import org.apache.lucene.index.VectorSimilarityFunction;
 import org.apache.lucene.search.Query;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.elasticsearch.index.codec.KnnVectorsFormatProvider;
 import org.elasticsearch.index.mapper.DocumentParserContext;
 import org.elasticsearch.index.mapper.FieldMapper;
@@ -38,6 +40,8 @@ import java.util.List;
 import java.util.Map;
 
 public class IvfPqVectorFieldMapper extends FieldMapper implements KnnVectorsFormatProvider {
+
+    private static final Logger logger = LogManager.getLogger(IvfPqVectorFieldMapper.class);
 
     public static final String CONTENT_TYPE = "ivfpq_vector";
     private static final int MAX_DIMS = 4096;
@@ -116,21 +120,49 @@ public class IvfPqVectorFieldMapper extends FieldMapper implements KnnVectorsFor
             throw new IllegalArgumentException("Vector has [" + i + "] dimensions, expected [" + dims + "]");
         }
 
+        for (int j = 0; j < dims; j++) {
+            if (Float.isNaN(vector[j])) {
+                throw new IllegalArgumentException(
+                    "vector value at dimension [" + j + "] is NaN, preview of invalid vector: " + vectorPreview(vector)
+                );
+            }
+            if (Float.isInfinite(vector[j])) {
+                throw new IllegalArgumentException(
+                    "vector value at dimension [" + j + "] is infinite, preview of invalid vector: " + vectorPreview(vector)
+                );
+            }
+        }
+
         if (similarity == VectorSimilarityFunction.COSINE) {
             float magnitude = 0;
             for (float v : vector) {
                 magnitude += v * v;
             }
             magnitude = (float) Math.sqrt(magnitude);
-            if (magnitude > 0) {
-                for (int d = 0; d < dims; d++) {
-                    vector[d] /= magnitude;
-                }
+            if (magnitude == 0.0f) {
+                throw new IllegalArgumentException(
+                    "The [cosine] similarity does not support vectors with zero magnitude"
+                );
+            }
+            for (int d = 0; d < dims; d++) {
+                vector[d] /= magnitude;
             }
         }
 
         IndexableField field = new KnnFloatVectorField(fullPath(), vector, similarity);
         context.doc().addWithKey(fullPath(), field);
+    }
+
+    private static String vectorPreview(float[] vector) {
+        StringBuilder sb = new StringBuilder("[");
+        int previewLen = Math.min(5, vector.length);
+        for (int i = 0; i < previewLen; i++) {
+            if (i > 0) sb.append(", ");
+            sb.append(vector[i]);
+        }
+        if (vector.length > 5) sb.append(", ...");
+        sb.append("]");
+        return sb.toString();
     }
 
     @Override
@@ -248,6 +280,26 @@ public class IvfPqVectorFieldMapper extends FieldMapper implements KnnVectorsFor
             int trainingThresholdVal = trainingThresholdParam.getValue();
             VectorSimilarityFunction sim = parseSimilarity(similarityParam.getValue());
 
+            if (sim != VectorSimilarityFunction.EUCLIDEAN) {
+                logger.warn(
+                    "IVF-PQ quantization uses L2 distance internally; similarity [{}] scoring will be approximate for field [{}]",
+                    similarityParam.getValue(),
+                    leafName()
+                );
+            }
+
+            if (mVal <= 0) {
+                throw new IllegalArgumentException("m must be > 0, got " + mVal);
+            }
+            if (nlistVal <= 0) {
+                throw new IllegalArgumentException("nlist must be > 0, got " + nlistVal);
+            }
+            if (nprobeVal <= 0) {
+                throw new IllegalArgumentException("nprobe must be > 0, got " + nprobeVal);
+            }
+            if (trainingThresholdVal <= 0) {
+                throw new IllegalArgumentException("training_threshold must be > 0, got " + trainingThresholdVal);
+            }
             if (dimsVal % mVal != 0) {
                 throw new IllegalArgumentException("dims [" + dimsVal + "] must be divisible by m [" + mVal + "]");
             }

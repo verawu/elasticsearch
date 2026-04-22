@@ -306,6 +306,16 @@ public class IvfPqVectorsFormatTests extends ESTestCase {
         assertEquals("IvfPqVectorsFormat(nlist=256, nprobe=16, m=8, nbits=8)", format.toString());
     }
 
+    public void testFormatConstructorValidation() {
+        expectThrows(IllegalArgumentException.class, () -> new IvfPqVectorsFormat(0, 16, 8, 8, 1000, 20));
+        expectThrows(IllegalArgumentException.class, () -> new IvfPqVectorsFormat(256, 0, 8, 8, 1000, 20));
+        expectThrows(IllegalArgumentException.class, () -> new IvfPqVectorsFormat(256, 16, 0, 8, 1000, 20));
+        expectThrows(IllegalArgumentException.class, () -> new IvfPqVectorsFormat(256, 16, 8, 0, 1000, 20));
+        expectThrows(IllegalArgumentException.class, () -> new IvfPqVectorsFormat(256, 16, 8, 8, 0, 20));
+        expectThrows(IllegalArgumentException.class, () -> new IvfPqVectorsFormat(256, 16, 8, 8, 1000, 0));
+        expectThrows(IllegalArgumentException.class, () -> new IvfPqVectorsFormat(4, 8, 8, 8, 1000, 20));
+    }
+
     private static float[] randomVector(int dims, Random random) {
         float[] vector = new float[dims];
         for (int d = 0; d < dims; d++) {

@@ -36,6 +36,8 @@ import static org.elasticsearch.xpack.ivfpq.codec.IvfPqVectorsFormat.VERSION_CUR
 
 public class IvfPqVectorsWriter extends KnnVectorsWriter {
 
+    private static final String IVFPQ_COMPONENT = "IvfPqVectors";
+
     private final SegmentWriteState state;
     private final IndexOutput meta;
     private final IndexOutput data;
@@ -127,6 +129,13 @@ public class IvfPqVectorsWriter extends KnnVectorsWriter {
         VectorSimilarityFunction similarity = fieldInfo.getVectorSimilarityFunction();
         boolean isFlat = vectors.length < trainingThreshold;
 
+        if (state.infoStream.isEnabled(IVFPQ_COMPONENT)) {
+            state.infoStream.message(
+                IVFPQ_COMPONENT,
+                "field [" + fieldInfo.name + "] vectors=" + vectors.length + " mode=" + (isFlat ? "flat" : "ivfpq")
+            );
+        }
+
         meta.writeInt(fieldInfo.number);
         meta.writeInt(fieldInfo.getVectorEncoding().ordinal());
         meta.writeInt(similarity.ordinal());
@@ -154,10 +163,20 @@ public class IvfPqVectorsWriter extends KnnVectorsWriter {
         throws IOException {
         int effectiveNlist = Math.min(nlist, vectors.length);
         int effectiveM = m;
-        Random random = new Random(42);
+        long seed = Arrays.hashCode(state.segmentInfo.getId()) ^ fieldInfo.name.hashCode();
+        Random random = new Random(seed);
+
+        // Subsample training set for large segments
+        float[][] trainingVectors = vectors;
+        int maxTrainingSize = 10 * trainingThreshold;
+        if (vectors.length > maxTrainingSize) {
+            trainingVectors = subsample(vectors, maxTrainingSize, random);
+        }
+
+        long trainStart = System.nanoTime();
 
         // Train IVF centroids
-        float[][] centroids = KMeans.train(vectors, effectiveNlist, kmeansIters, random);
+        float[][] centroids = KMeans.train(trainingVectors, effectiveNlist, kmeansIters, random);
         effectiveNlist = centroids.length;
 
         // Assign vectors to clusters
@@ -171,8 +190,21 @@ public class IvfPqVectorsWriter extends KnnVectorsWriter {
             }
         }
 
-        // Train PQ codebooks on residuals
-        ProductQuantizer pq = ProductQuantizer.train(residuals, dims, effectiveM, nbits, kmeansIters, random);
+        // Train PQ codebooks on residuals (subsample if large)
+        float[][] pqTrainingResiduals = residuals;
+        if (residuals.length > maxTrainingSize) {
+            pqTrainingResiduals = subsample(residuals, maxTrainingSize, random);
+        }
+        ProductQuantizer pq = ProductQuantizer.train(pqTrainingResiduals, dims, effectiveM, nbits, kmeansIters, random);
+
+        long trainDurationMs = (System.nanoTime() - trainStart) / 1_000_000;
+        if (state.infoStream.isEnabled(IVFPQ_COMPONENT)) {
+            state.infoStream.message(
+                IVFPQ_COMPONENT,
+                "field [" + fieldInfo.name + "] trained IVF-PQ: nlist=" + effectiveNlist + " m=" + effectiveM + " vectors="
+                    + vectors.length + " trainingSize=" + trainingVectors.length + " duration=" + trainDurationMs + "ms"
+            );
+        }
 
         // PQ-encode all residuals
         byte[][] pqCodes = new byte[vectors.length][];
@@ -255,7 +287,8 @@ public class IvfPqVectorsWriter extends KnnVectorsWriter {
         List<float[]> vectorsList = new ArrayList<>();
         List<Integer> docIdsList = new ArrayList<>();
         while (mergedValues.nextDoc() != FloatVectorValues.NO_MORE_DOCS) {
-            vectorsList.add(Arrays.copyOf(mergedValues.vectorValue(), mergedValues.vectorValue().length));
+            float[] v = mergedValues.vectorValue();
+            vectorsList.add(Arrays.copyOf(v, v.length));
             docIdsList.add(mergedValues.docID());
         }
 
@@ -281,6 +314,10 @@ public class IvfPqVectorsWriter extends KnnVectorsWriter {
 
     @Override
     public void close() throws IOException {
+        if (finished == false) {
+            IOUtils.closeWhileHandlingException(meta, data);
+            return;
+        }
         IOUtils.close(meta, data);
     }
 
@@ -291,6 +328,20 @@ public class IvfPqVectorsWriter extends KnnVectorsWriter {
             bytes += (long) fieldWriter.vectors.size() * fieldWriter.fieldInfo.getVectorDimension() * Float.BYTES;
         }
         return bytes;
+    }
+
+    private static float[][] subsample(float[][] vectors, int sampleSize, Random random) {
+        float[][] sampled = new float[sampleSize][];
+        boolean[] selected = new boolean[vectors.length];
+        for (int i = 0; i < sampleSize; i++) {
+            int idx;
+            do {
+                idx = random.nextInt(vectors.length);
+            } while (selected[idx]);
+            selected[idx] = true;
+            sampled[i] = vectors[idx];
+        }
+        return sampled;
     }
 
     static class FieldWriter extends KnnFieldVectorsWriter<float[]> {

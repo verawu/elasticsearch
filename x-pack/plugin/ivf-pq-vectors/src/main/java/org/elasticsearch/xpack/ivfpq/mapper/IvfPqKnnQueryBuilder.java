@@ -8,7 +8,9 @@
 package org.elasticsearch.xpack.ivfpq.mapper;
 
 import org.apache.lucene.search.KnnFloatVectorQuery;
+import org.apache.lucene.search.MatchNoDocsQuery;
 import org.apache.lucene.search.Query;
+import org.elasticsearch.xpack.ivfpq.codec.IvfPqVectorsReader;
 import org.elasticsearch.TransportVersion;
 import org.elasticsearch.TransportVersions;
 import org.elasticsearch.common.io.stream.StreamInput;
@@ -35,6 +37,7 @@ public class IvfPqKnnQueryBuilder extends AbstractQueryBuilder<IvfPqKnnQueryBuil
     private static final ParseField QUERY_VECTOR_FIELD = new ParseField("query_vector");
     private static final ParseField K_FIELD = new ParseField("k");
     private static final ParseField NUM_CANDIDATES_FIELD = new ParseField("num_candidates");
+    private static final ParseField NPROBE_FIELD = new ParseField("nprobe");
 
     private static final ObjectParser<IvfPqKnnQueryBuilder, Void> PARSER = new ObjectParser<>(NAME, IvfPqKnnQueryBuilder::new);
 
@@ -43,6 +46,7 @@ public class IvfPqKnnQueryBuilder extends AbstractQueryBuilder<IvfPqKnnQueryBuil
         PARSER.declareFloatArray(IvfPqKnnQueryBuilder::setQueryVector, QUERY_VECTOR_FIELD);
         PARSER.declareInt(IvfPqKnnQueryBuilder::setK, K_FIELD);
         PARSER.declareInt(IvfPqKnnQueryBuilder::setNumCandidates, NUM_CANDIDATES_FIELD);
+        PARSER.declareInt(IvfPqKnnQueryBuilder::setNprobe, NPROBE_FIELD);
         declareStandardFields(PARSER);
     }
 
@@ -50,12 +54,16 @@ public class IvfPqKnnQueryBuilder extends AbstractQueryBuilder<IvfPqKnnQueryBuil
     private float[] queryVector;
     private int k = 10;
     private int numCandidates = 100;
+    private Integer nprobeOverride;
 
     public IvfPqKnnQueryBuilder() {}
 
     public IvfPqKnnQueryBuilder(String field, float[] queryVector, int k) {
         this.field = Objects.requireNonNull(field);
         this.queryVector = Objects.requireNonNull(queryVector);
+        if (k < 1) {
+            throw new IllegalArgumentException("[k] must be greater than 0, got " + k);
+        }
         this.k = k;
         this.numCandidates = Math.max(k, 100);
     }
@@ -66,6 +74,7 @@ public class IvfPqKnnQueryBuilder extends AbstractQueryBuilder<IvfPqKnnQueryBuil
         this.queryVector = in.readFloatArray();
         this.k = in.readVInt();
         this.numCandidates = in.readVInt();
+        this.nprobeOverride = in.readOptionalVInt();
     }
 
     public static IvfPqKnnQueryBuilder fromXContent(XContentParser parser) throws IOException {
@@ -88,6 +97,17 @@ public class IvfPqKnnQueryBuilder extends AbstractQueryBuilder<IvfPqKnnQueryBuil
         return numCandidates;
     }
 
+    public Integer getNprobeOverride() {
+        return nprobeOverride;
+    }
+
+    private void setNprobe(int nprobe) {
+        if (nprobe < 1) {
+            throw new IllegalArgumentException("[nprobe] must be greater than 0, got " + nprobe);
+        }
+        this.nprobeOverride = nprobe;
+    }
+
     private void setField(String field) {
         this.field = field;
     }
@@ -100,10 +120,19 @@ public class IvfPqKnnQueryBuilder extends AbstractQueryBuilder<IvfPqKnnQueryBuil
     }
 
     private void setK(int k) {
+        if (k < 1) {
+            throw new IllegalArgumentException("[k] must be greater than 0, got " + k);
+        }
         this.k = k;
     }
 
     private void setNumCandidates(int numCandidates) {
+        if (numCandidates < 1) {
+            throw new IllegalArgumentException("[num_candidates] must be greater than 0, got " + numCandidates);
+        }
+        if (numCandidates > 10_000) {
+            throw new IllegalArgumentException("[num_candidates] cannot exceed 10000, got " + numCandidates);
+        }
         this.numCandidates = numCandidates;
     }
 
@@ -118,6 +147,7 @@ public class IvfPqKnnQueryBuilder extends AbstractQueryBuilder<IvfPqKnnQueryBuil
         out.writeFloatArray(queryVector);
         out.writeVInt(k);
         out.writeVInt(numCandidates);
+        out.writeOptionalVInt(nprobeOverride);
     }
 
     @Override
@@ -127,6 +157,9 @@ public class IvfPqKnnQueryBuilder extends AbstractQueryBuilder<IvfPqKnnQueryBuil
         builder.array(QUERY_VECTOR_FIELD.getPreferredName(), queryVector);
         builder.field(K_FIELD.getPreferredName(), k);
         builder.field(NUM_CANDIDATES_FIELD.getPreferredName(), numCandidates);
+        if (nprobeOverride != null) {
+            builder.field(NPROBE_FIELD.getPreferredName(), nprobeOverride);
+        }
         boostAndQueryNameToXContent(builder);
         builder.endObject();
     }
@@ -135,14 +168,40 @@ public class IvfPqKnnQueryBuilder extends AbstractQueryBuilder<IvfPqKnnQueryBuil
     protected Query doToQuery(SearchExecutionContext context) throws IOException {
         MappedFieldType fieldType = context.getFieldType(field);
         if (fieldType == null) {
-            throw new IllegalArgumentException("field [" + field + "] does not exist in the mapping");
+            return new MatchNoDocsQuery("field [" + field + "] does not exist in the mapping");
         }
         if (fieldType instanceof IvfPqVectorFieldMapper.IvfPqVectorFieldType == false) {
             throw new IllegalArgumentException(
                 "[" + NAME + "] query only supports [" + IvfPqVectorFieldMapper.CONTENT_TYPE + "] fields"
             );
         }
-        return new KnnFloatVectorQuery(field, queryVector, numCandidates);
+        IvfPqVectorFieldMapper.IvfPqVectorFieldType ivfpqFieldType =
+            (IvfPqVectorFieldMapper.IvfPqVectorFieldType) fieldType;
+        if (queryVector.length != ivfpqFieldType.getDims()) {
+            throw new IllegalArgumentException(
+                "the query vector has a different dimension [" + queryVector.length
+                    + "] than the index vectors [" + ivfpqFieldType.getDims() + "]"
+            );
+        }
+        for (int i = 0; i < queryVector.length; i++) {
+            if (Float.isNaN(queryVector[i])) {
+                throw new IllegalArgumentException("query vector contains NaN at dimension [" + i + "]");
+            }
+            if (Float.isInfinite(queryVector[i])) {
+                throw new IllegalArgumentException("query vector contains infinite value at dimension [" + i + "]");
+            }
+        }
+        if (numCandidates < k) {
+            throw new IllegalArgumentException("[num_candidates] cannot be less than [k]");
+        }
+        if (nprobeOverride != null) {
+            IvfPqVectorsReader.setNprobeOverride(nprobeOverride);
+        }
+        try {
+            return new KnnFloatVectorQuery(field, queryVector, numCandidates);
+        } finally {
+            IvfPqVectorsReader.clearNprobeOverride();
+        }
     }
 
     @Override
@@ -150,12 +209,13 @@ public class IvfPqKnnQueryBuilder extends AbstractQueryBuilder<IvfPqKnnQueryBuil
         return Objects.equals(field, other.field)
             && Arrays.equals(queryVector, other.queryVector)
             && k == other.k
-            && numCandidates == other.numCandidates;
+            && numCandidates == other.numCandidates
+            && Objects.equals(nprobeOverride, other.nprobeOverride);
     }
 
     @Override
     protected int doHashCode() {
-        return Objects.hash(field, Arrays.hashCode(queryVector), k, numCandidates);
+        return Objects.hash(field, Arrays.hashCode(queryVector), k, numCandidates, nprobeOverride);
     }
 
     @Override
