@@ -17,6 +17,7 @@ import org.elasticsearch.common.util.BigArrays;
 import org.elasticsearch.common.util.FeatureFlag;
 import org.elasticsearch.core.Nullable;
 import org.elasticsearch.index.codec.zstd.Zstd814StoredFieldsFormat;
+import org.elasticsearch.index.engine.VectorBuildExecutorService;
 import org.elasticsearch.index.mapper.MapperService;
 
 import java.util.HashMap;
@@ -44,11 +45,22 @@ public class CodecService implements CodecProvider {
     public static final String LUCENE_DEFAULT_CODEC = "lucene_default";
 
     public CodecService(@Nullable MapperService mapperService, BigArrays bigArrays) {
+        this(mapperService, bigArrays, null);
+    }
+
+    public CodecService(
+        @Nullable MapperService mapperService,
+        BigArrays bigArrays,
+        @Nullable VectorBuildExecutorService vectorBuildExecutorService
+    ) {
         final var codecs = new HashMap<String, Codec>();
 
         Codec legacyBestSpeedCodec = new LegacyPerFieldMapperCodec(Lucene912Codec.Mode.BEST_SPEED, mapperService, bigArrays);
         if (ZSTD_STORED_FIELDS_FEATURE_FLAG.isEnabled()) {
-            codecs.put(DEFAULT_CODEC, new PerFieldMapperCodec(Zstd814StoredFieldsFormat.Mode.BEST_SPEED, mapperService, bigArrays));
+            codecs.put(
+                DEFAULT_CODEC,
+                new PerFieldMapperCodec(Zstd814StoredFieldsFormat.Mode.BEST_SPEED, mapperService, bigArrays, vectorBuildExecutorService)
+            );
         } else {
             codecs.put(DEFAULT_CODEC, legacyBestSpeedCodec);
         }
@@ -56,7 +68,12 @@ public class CodecService implements CodecProvider {
 
         codecs.put(
             BEST_COMPRESSION_CODEC,
-            new PerFieldMapperCodec(Zstd814StoredFieldsFormat.Mode.BEST_COMPRESSION, mapperService, bigArrays)
+            new PerFieldMapperCodec(
+                Zstd814StoredFieldsFormat.Mode.BEST_COMPRESSION,
+                mapperService,
+                bigArrays,
+                vectorBuildExecutorService
+            )
         );
         Codec legacyBestCompressionCodec = new LegacyPerFieldMapperCodec(Lucene912Codec.Mode.BEST_COMPRESSION, mapperService, bigArrays);
         codecs.put(LEGACY_BEST_COMPRESSION_CODEC, legacyBestCompressionCodec);

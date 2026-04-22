@@ -17,6 +17,8 @@ import org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsReader;
 import org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsWriter;
 import org.apache.lucene.index.SegmentReadState;
 import org.apache.lucene.index.SegmentWriteState;
+import org.elasticsearch.core.Nullable;
+import org.elasticsearch.index.engine.VectorBuildExecutorService;
 
 import java.io.IOException;
 
@@ -38,11 +40,25 @@ public final class ES814HnswScalarQuantizedVectorsFormat extends KnnVectorsForma
     /** The format for storing, reading, merging vectors on disk */
     private final FlatVectorsFormat flatVectorsFormat;
 
+    @Nullable
+    private final VectorBuildExecutorService buildService;
+
     public ES814HnswScalarQuantizedVectorsFormat() {
         this(DEFAULT_MAX_CONN, DEFAULT_BEAM_WIDTH, null, 7, false);
     }
 
     public ES814HnswScalarQuantizedVectorsFormat(int maxConn, int beamWidth, Float confidenceInterval, int bits, boolean compress) {
+        this(maxConn, beamWidth, confidenceInterval, bits, compress, null);
+    }
+
+    public ES814HnswScalarQuantizedVectorsFormat(
+        int maxConn,
+        int beamWidth,
+        Float confidenceInterval,
+        int bits,
+        boolean compress,
+        @Nullable VectorBuildExecutorService buildService
+    ) {
         super(NAME);
         if (maxConn <= 0 || maxConn > MAXIMUM_MAX_CONN) {
             throw new IllegalArgumentException(
@@ -57,10 +73,14 @@ public final class ES814HnswScalarQuantizedVectorsFormat extends KnnVectorsForma
         this.maxConn = maxConn;
         this.beamWidth = beamWidth;
         this.flatVectorsFormat = new ES814ScalarQuantizedVectorsFormat(confidenceInterval, bits, compress);
+        this.buildService = buildService;
     }
 
     @Override
     public KnnVectorsWriter fieldsWriter(SegmentWriteState state) throws IOException {
+        if (buildService != null) {
+            return new DeferredHnswVectorsWriter(state, maxConn, beamWidth, flatVectorsFormat.fieldsWriter(state), buildService, 1, null);
+        }
         return new Lucene99HnswVectorsWriter(state, maxConn, beamWidth, flatVectorsFormat.fieldsWriter(state), 1, null);
     }
 

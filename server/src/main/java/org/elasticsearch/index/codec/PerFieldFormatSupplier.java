@@ -15,11 +15,13 @@ import org.apache.lucene.codecs.PostingsFormat;
 import org.apache.lucene.codecs.lucene90.Lucene90DocValuesFormat;
 import org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsFormat;
 import org.elasticsearch.common.util.BigArrays;
+import org.elasticsearch.core.Nullable;
 import org.elasticsearch.index.IndexMode;
 import org.elasticsearch.index.IndexSettings;
 import org.elasticsearch.index.codec.bloomfilter.ES87BloomFilterPostingsFormat;
 import org.elasticsearch.index.codec.postings.ES812PostingsFormat;
 import org.elasticsearch.index.codec.tsdb.es819.ES819TSDBDocValuesFormat;
+import org.elasticsearch.index.engine.VectorBuildExecutorService;
 import org.elasticsearch.index.mapper.IdFieldMapper;
 import org.elasticsearch.index.mapper.Mapper;
 import org.elasticsearch.index.mapper.MapperService;
@@ -39,10 +41,22 @@ public class PerFieldFormatSupplier {
 
     private final ES812PostingsFormat es812PostingsFormat;
 
+    @Nullable
+    private final VectorBuildExecutorService vectorBuildExecutorService;
+
     public PerFieldFormatSupplier(MapperService mapperService, BigArrays bigArrays) {
+        this(mapperService, bigArrays, null);
+    }
+
+    public PerFieldFormatSupplier(
+        MapperService mapperService,
+        BigArrays bigArrays,
+        @Nullable VectorBuildExecutorService vectorBuildExecutorService
+    ) {
         this.mapperService = mapperService;
         this.bloomFilterPostingsFormat = new ES87BloomFilterPostingsFormat(bigArrays, this::internalGetPostingsFormatForField);
         this.es812PostingsFormat = new ES812PostingsFormat();
+        this.vectorBuildExecutorService = vectorBuildExecutorService;
     }
 
     public PostingsFormat getPostingsFormatForField(String field) {
@@ -85,7 +99,7 @@ public class PerFieldFormatSupplier {
         if (mapperService != null) {
             Mapper mapper = mapperService.mappingLookup().getMapper(field);
             if (mapper instanceof DenseVectorFieldMapper vectorMapper) {
-                return vectorMapper.getKnnVectorsFormatForField(knnVectorsFormat);
+                return vectorMapper.getKnnVectorsFormatForField(knnVectorsFormat, vectorBuildExecutorService);
             }
         }
         return knnVectorsFormat;
