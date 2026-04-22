@@ -56,8 +56,8 @@ public final class JdkVectorLibrary implements VectorLibrary {
                         FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS, JAVA_INT),
                         LinkerHelperUtil.critical()
                     );
-                    dot7u_batch$mh = downcallHandle("dot7u_batch_2", batchDesc, LinkerHelperUtil.critical());
-                    sqr7u_batch$mh = downcallHandle("sqr7u_batch_2", batchDesc, LinkerHelperUtil.critical());
+                    dot7u_batch$mh = downcallHandle("dot7u_batch_2", batchDesc);
+                    sqr7u_batch$mh = downcallHandle("sqr7u_batch_2", batchDesc);
                 } else {
                     dot7u$mh = downcallHandle(
                         "dot7u",
@@ -69,8 +69,8 @@ public final class JdkVectorLibrary implements VectorLibrary {
                         FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS, JAVA_INT),
                         LinkerHelperUtil.critical()
                     );
-                    dot7u_batch$mh = downcallHandle("dot7u_batch", batchDesc, LinkerHelperUtil.critical());
-                    sqr7u_batch$mh = downcallHandle("sqr7u_batch", batchDesc, LinkerHelperUtil.critical());
+                    dot7u_batch$mh = downcallHandle("dot7u_batch", batchDesc);
+                    sqr7u_batch$mh = downcallHandle("sqr7u_batch", batchDesc);
                 }
                 INSTANCE = new JdkVectorSimilarityFunctions();
             } else {
