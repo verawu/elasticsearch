@@ -23,8 +23,6 @@ import org.elasticsearch.index.codec.tsdb.es819.ES819TSDBDocValuesFormat;
 import org.elasticsearch.index.mapper.IdFieldMapper;
 import org.elasticsearch.index.mapper.Mapper;
 import org.elasticsearch.index.mapper.MapperService;
-import org.elasticsearch.index.mapper.vectors.DenseVectorFieldMapper;
-
 /**
  * Class that encapsulates the logic of figuring out the most appropriate file format for a given field, across postings, doc values and
  * vectors.
@@ -84,7 +82,7 @@ public class PerFieldFormatSupplier {
     public KnnVectorsFormat getKnnVectorsFormatForField(String field) {
         if (mapperService != null) {
             Mapper mapper = mapperService.mappingLookup().getMapper(field);
-            if (mapper instanceof DenseVectorFieldMapper vectorMapper) {
+            if (mapper instanceof KnnVectorsFormatProvider vectorMapper) {
                 return vectorMapper.getKnnVectorsFormatForField(knnVectorsFormat);
             }
         }
