@@ -150,6 +150,7 @@ public class RefreshListenersTests extends ESTestCase {
             shardId,
             threadPool,
             threadPoolMergeExecutorService,
+            null,
             indexSettings,
             null,
             store,

@@ -45,6 +45,7 @@ import org.elasticsearch.index.cache.query.QueryCache;
 import org.elasticsearch.index.engine.Engine;
 import org.elasticsearch.index.engine.EngineFactory;
 import org.elasticsearch.index.engine.ThreadPoolMergeExecutorService;
+import org.elasticsearch.index.engine.VectorBuildExecutorService;
 import org.elasticsearch.index.mapper.IdFieldMapper;
 import org.elasticsearch.index.mapper.MapperMetrics;
 import org.elasticsearch.index.mapper.MapperRegistry;
@@ -477,6 +478,7 @@ public final class IndexModule {
         BigArrays bigArrays,
         ThreadPool threadPool,
         ThreadPoolMergeExecutorService threadPoolMergeExecutorService,
+        VectorBuildExecutorService vectorBuildExecutorService,
         ScriptService scriptService,
         ClusterService clusterService,
         Client client,
@@ -531,6 +533,7 @@ public final class IndexModule {
                 bigArrays,
                 threadPool,
                 threadPoolMergeExecutorService,
+                vectorBuildExecutorService,
                 scriptService,
                 clusterService,
                 client,

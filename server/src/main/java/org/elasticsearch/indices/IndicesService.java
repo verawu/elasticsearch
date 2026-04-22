@@ -99,6 +99,7 @@ import org.elasticsearch.index.engine.EngineFactory;
 import org.elasticsearch.index.engine.InternalEngineFactory;
 import org.elasticsearch.index.engine.NoOpEngine;
 import org.elasticsearch.index.engine.ThreadPoolMergeExecutorService;
+import org.elasticsearch.index.engine.VectorBuildExecutorService;
 import org.elasticsearch.index.fielddata.IndexFieldDataCache;
 import org.elasticsearch.index.flush.FlushStats;
 import org.elasticsearch.index.get.GetStats;
@@ -233,6 +234,8 @@ public class IndicesService extends AbstractLifecycleComponent
     private final ThreadPool threadPool;
     @Nullable
     private final ThreadPoolMergeExecutorService threadPoolMergeExecutorService;
+    @Nullable
+    private final VectorBuildExecutorService vectorBuildExecutorService;
     private final CircuitBreakerService circuitBreakerService;
     private final BigArrays bigArrays;
     private final ScriptService scriptService;
@@ -315,6 +318,7 @@ public class IndicesService extends AbstractLifecycleComponent
             clusterService.getClusterSettings(),
             nodeEnv
         );
+        this.vectorBuildExecutorService = new VectorBuildExecutorService(threadPool, -1);
         this.client = builder.client;
         this.featureService = builder.featureService;
         this.idFieldDataEnabled = INDICES_ID_FIELD_DATA_ENABLED_SETTING.get(clusterService.getSettings());
@@ -363,7 +367,8 @@ public class IndicesService extends AbstractLifecycleComponent
                     cacheCleaner,
                     indicesRequestCache,
                     indicesQueryCache,
-                    threadPoolMergeExecutorService
+                    threadPoolMergeExecutorService,
+                    vectorBuildExecutorService
                 );
             } catch (IOException e) {
                 throw new UncheckedIOException(e);
@@ -797,6 +802,7 @@ public class IndicesService extends AbstractLifecycleComponent
             bigArrays,
             threadPool,
             threadPoolMergeExecutorService,
+            vectorBuildExecutorService,
             scriptService,
             clusterService,
             client,

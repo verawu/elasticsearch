@@ -253,6 +253,7 @@ public class FollowingEngineTests extends ESTestCase {
             shardIdValue,
             threadPool,
             threadPoolMergeExecutorService,
+            null,
             indexSettings,
             null,
             store,
