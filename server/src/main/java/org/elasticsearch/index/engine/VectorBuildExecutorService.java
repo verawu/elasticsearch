@@ -16,6 +16,7 @@ import org.elasticsearch.common.settings.Setting.Property;
 import org.elasticsearch.threadpool.ThreadPool;
 
 import java.io.Closeable;
+import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
@@ -65,11 +66,11 @@ public class VectorBuildExecutorService implements Closeable {
     /**
      * Submits an HNSW graph build task for background execution.
      *
-     * @param task the graph construction runnable
+     * @param task the graph construction callable
      * @param estimatedCostBytes estimated memory cost (used for backpressure decisions)
-     * @return a future that completes when the graph is built
+     * @return a future that completes with the callable's result when the graph is built
      */
-    public CompletableFuture<Void> submitBuildTask(Runnable task, long estimatedCostBytes) {
+    public <T> CompletableFuture<T> submitBuildTask(Callable<T> task, long estimatedCostBytes) {
         if (closed) {
             return CompletableFuture.failedFuture(new RejectedExecutionException("VectorBuildExecutorService is closed"));
         }
@@ -77,7 +78,7 @@ public class VectorBuildExecutorService implements Closeable {
         pendingTasks.incrementAndGet();
         long queueStartNanos = System.nanoTime();
 
-        CompletableFuture<Void> future = new CompletableFuture<>();
+        CompletableFuture<T> future = new CompletableFuture<>();
         try {
             executorService.execute(() -> {
                 pendingTasks.decrementAndGet();
@@ -86,8 +87,7 @@ public class VectorBuildExecutorService implements Closeable {
                 totalQueueTimeNanos.addAndGet(queueTimeNanos);
                 long buildStartNanos = System.nanoTime();
                 try {
-                    task.run();
-                    future.complete(null);
+                    future.complete(task.call());
                 } catch (Exception e) {
                     logger.warn("HNSW graph build failed", e);
                     future.completeExceptionally(e);
