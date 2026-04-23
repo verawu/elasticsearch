@@ -31,6 +31,7 @@ import org.elasticsearch.index.MergeSchedulerConfig;
 import org.elasticsearch.index.SearchSlowLog;
 import org.elasticsearch.index.cache.bitset.BitsetFilterCache;
 import org.elasticsearch.index.engine.EngineConfig;
+import org.elasticsearch.index.engine.VectorBuildExecutorService;
 import org.elasticsearch.index.fielddata.IndexFieldDataService;
 import org.elasticsearch.index.mapper.FieldMapper;
 import org.elasticsearch.index.mapper.IgnoredSourceFieldMapper;
@@ -56,6 +57,7 @@ public final class IndexScopedSettings extends AbstractScopedSettings {
         MergeSchedulerConfig.AUTO_THROTTLE_SETTING,
         MergeSchedulerConfig.MAX_MERGE_COUNT_SETTING,
         MergeSchedulerConfig.MAX_THREAD_COUNT_SETTING,
+        VectorBuildExecutorService.DEFERRED_VECTOR_BUILD_ENABLED_SETTING,
         IndexMetadata.SETTING_INDEX_VERSION_CREATED,
         IndexMetadata.SETTING_INDEX_VERSION_COMPATIBILITY,
         IndexMetadata.INDEX_ROUTING_EXCLUDE_GROUP_SETTING,

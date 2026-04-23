@@ -626,6 +626,7 @@ public class IndexShardIT extends ESSingleNodeTestCase {
             wrapper,
             indexService.getThreadPool(),
             indexService.getThreadPoolMergeExecutorService(),
+            null,
             indexService.getBigArrays(),
             null,
             Collections.emptyList(),

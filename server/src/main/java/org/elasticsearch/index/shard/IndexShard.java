@@ -342,7 +342,8 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
         assert shardRouting.initializing();
         this.shardRouting = shardRouting;
         final Settings settings = indexSettings.getSettings();
-        this.codecService = new CodecService(mapperService, bigArrays, vectorBuildExecutorService);
+        boolean deferredVectorBuild = VectorBuildExecutorService.DEFERRED_VECTOR_BUILD_ENABLED_SETTING.get(settings);
+        this.codecService = new CodecService(mapperService, bigArrays, deferredVectorBuild ? vectorBuildExecutorService : null);
         this.warmer = warmer;
         this.similarityService = similarityService;
         Objects.requireNonNull(store, "Store must be provided to the index shard");
