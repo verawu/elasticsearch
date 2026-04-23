@@ -41,6 +41,10 @@ public final class ESHnswVectorsFormat extends KnnVectorsFormat {
     private final FlatVectorsFormat flatVectorsFormat;
     private final VectorBuildExecutorService buildService;
 
+    public ESHnswVectorsFormat() {
+        this(DEFAULT_MAX_CONN, DEFAULT_BEAM_WIDTH, null);
+    }
+
     public ESHnswVectorsFormat(int maxConn, int beamWidth, @Nullable VectorBuildExecutorService buildService) {
         super(NAME);
         this.maxConn = maxConn;
