@@ -177,4 +177,35 @@ public class VectorBuildExecutorServiceTests extends ESTestCase {
         assertBusy(() -> assertThat(service.getCompletedTasks(), equalTo(1L)));
         service.close();
     }
+
+    public void testCloseAwaitsInFlightTasks() throws Exception {
+        VectorBuildExecutorService service = new VectorBuildExecutorService(threadPool, 4);
+        CountDownLatch taskStarted = new CountDownLatch(1);
+        Semaphore gate = new Semaphore(0);
+
+        CompletableFuture<String> future = service.submitBuildTask(() -> {
+            taskStarted.countDown();
+            gate.acquire();
+            return "done";
+        }, 1024);
+
+        assertTrue(taskStarted.await(10, TimeUnit.SECONDS));
+
+        Thread closeThread = new Thread(service::close);
+        closeThread.start();
+
+        Thread.sleep(100);
+        assertTrue("close should block while task is in-flight", closeThread.isAlive());
+
+        gate.release();
+        closeThread.join(10_000);
+        assertFalse("close should have completed", closeThread.isAlive());
+        assertThat(future.get(1, TimeUnit.SECONDS), equalTo("done"));
+    }
+
+    public void testAwaitPendingTasksReturnsImmediatelyWhenEmpty() {
+        VectorBuildExecutorService service = new VectorBuildExecutorService(threadPool, 4);
+        assertTrue(service.awaitPendingTasks(1, TimeUnit.MILLISECONDS));
+        service.close();
+    }
 }

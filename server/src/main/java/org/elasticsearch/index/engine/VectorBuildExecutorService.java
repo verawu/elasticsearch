@@ -13,13 +13,18 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.elasticsearch.common.settings.Setting;
 import org.elasticsearch.common.settings.Setting.Property;
+import org.elasticsearch.index.shard.DenseVectorStats;
 import org.elasticsearch.threadpool.ThreadPool;
 
 import java.io.Closeable;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -48,6 +53,7 @@ public class VectorBuildExecutorService implements Closeable {
     );
 
     private final ExecutorService executorService;
+    private final Set<CompletableFuture<?>> inFlightFutures = ConcurrentHashMap.newKeySet();
     private final AtomicInteger pendingTasks = new AtomicInteger();
     private final AtomicInteger runningTasks = new AtomicInteger();
     private final AtomicLong completedTasks = new AtomicLong();
@@ -79,6 +85,8 @@ public class VectorBuildExecutorService implements Closeable {
         long queueStartNanos = System.nanoTime();
 
         CompletableFuture<T> future = new CompletableFuture<>();
+        inFlightFutures.add(future);
+        future.whenComplete((r, t) -> inFlightFutures.remove(future));
         try {
             executorService.execute(() -> {
                 pendingTasks.decrementAndGet();
@@ -110,6 +118,35 @@ public class VectorBuildExecutorService implements Closeable {
      */
     public boolean shouldThrottleIndexing() {
         return pendingTasks.get() + runningTasks.get() > maxConcurrentBuilds * 3;
+    }
+
+    public DenseVectorStats.VectorBuildStats stats() {
+        return new DenseVectorStats.VectorBuildStats(
+            pendingTasks.get(),
+            runningTasks.get(),
+            completedTasks.get(),
+            TimeUnit.NANOSECONDS.toMillis(totalBuildTimeNanos.get()),
+            TimeUnit.NANOSECONDS.toMillis(totalQueueTimeNanos.get())
+        );
+    }
+
+    /**
+     * Waits for all currently in-flight graph build tasks to complete.
+     * @return true if all tasks completed within the timeout, false if timed out
+     */
+    public boolean awaitPendingTasks(long timeout, TimeUnit unit) {
+        if (inFlightFutures.isEmpty()) {
+            return true;
+        }
+        try {
+            CompletableFuture.allOf(inFlightFutures.toArray(new CompletableFuture<?>[0])).get(timeout, unit);
+            return true;
+        } catch (TimeoutException e) {
+            logger.warn("Timed out waiting for {} in-flight vector build tasks", inFlightFutures.size());
+            return false;
+        } catch (Exception e) {
+            return true;
+        }
     }
 
     public ExecutorService getExecutorService() {
@@ -145,5 +182,6 @@ public class VectorBuildExecutorService implements Closeable {
     @Override
     public void close() {
         closed = true;
+        awaitPendingTasks(60, TimeUnit.SECONDS);
     }
 }

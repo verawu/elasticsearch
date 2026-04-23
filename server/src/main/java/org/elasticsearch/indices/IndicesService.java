@@ -318,7 +318,15 @@ public class IndicesService extends AbstractLifecycleComponent
             clusterService.getClusterSettings(),
             nodeEnv
         );
-        this.vectorBuildExecutorService = new VectorBuildExecutorService(threadPool, -1);
+        this.vectorBuildExecutorService = new VectorBuildExecutorService(
+            threadPool,
+            VectorBuildExecutorService.MAX_CONCURRENT_BUILDS_SETTING.get(clusterService.getSettings())
+        );
+        clusterService.getClusterSettings()
+            .addSettingsUpdateConsumer(
+                VectorBuildExecutorService.MAX_CONCURRENT_BUILDS_SETTING,
+                vectorBuildExecutorService::setMaxConcurrentBuilds
+            );
         this.client = builder.client;
         this.featureService = builder.featureService;
         this.idFieldDataEnabled = INDICES_ID_FIELD_DATA_ENABLED_SETTING.get(clusterService.getSettings());

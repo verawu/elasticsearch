@@ -1463,7 +1463,11 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
     public DenseVectorStats denseVectorStats() {
         readAllowed();
         MappingLookup mappingLookup = mapperService != null ? mapperService.mappingLookup() : null;
-        return getEngine().denseVectorStats(mappingLookup);
+        DenseVectorStats stats = getEngine().denseVectorStats(mappingLookup);
+        if (vectorBuildExecutorService != null) {
+            stats.setVectorBuildStats(vectorBuildExecutorService.stats());
+        }
+        return stats;
     }
 
     public SparseVectorStats sparseVectorStats() {

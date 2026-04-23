@@ -22,11 +22,36 @@ public class DenseVectorStatsTests extends AbstractWireSerializingTestCase<Dense
     @Override
     protected DenseVectorStats createTestInstance() {
         DenseVectorStats stats = new DenseVectorStats(randomNonNegativeLong());
+        if (randomBoolean()) {
+            stats.setVectorBuildStats(randomVectorBuildStats());
+        }
         return stats;
     }
 
     @Override
     protected DenseVectorStats mutateInstance(DenseVectorStats instance) {
-        return new DenseVectorStats(randomValueOtherThan(instance.getValueCount(), ESTestCase::randomNonNegativeLong));
+        if (randomBoolean()) {
+            DenseVectorStats mutated = new DenseVectorStats(
+                randomValueOtherThan(instance.getValueCount(), ESTestCase::randomNonNegativeLong)
+            );
+            mutated.setVectorBuildStats(instance.getVectorBuildStats());
+            return mutated;
+        } else {
+            DenseVectorStats mutated = new DenseVectorStats(instance.getValueCount());
+            if (instance.getVectorBuildStats() == null) {
+                mutated.setVectorBuildStats(randomVectorBuildStats());
+            }
+            return mutated;
+        }
+    }
+
+    private static DenseVectorStats.VectorBuildStats randomVectorBuildStats() {
+        return new DenseVectorStats.VectorBuildStats(
+            randomIntBetween(0, 100),
+            randomIntBetween(0, 100),
+            randomNonNegativeLong(),
+            randomNonNegativeLong(),
+            randomNonNegativeLong()
+        );
     }
 }
