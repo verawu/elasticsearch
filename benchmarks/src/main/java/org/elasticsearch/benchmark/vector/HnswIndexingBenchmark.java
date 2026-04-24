@@ -50,12 +50,12 @@ import java.util.concurrent.TimeUnit;
  *
  * <p>Two benchmark methods:
  * <ul>
- *   <li>{@code addDocumentsOnly} — measures only addDocument() throughput. Deferred mode is O(1)/doc
- *       (flat vector store), inline is O(log N * beamWidth)/doc (graph insertion). This isolates the
- *       indexing-thread cost and shows the throughput advantage of deferring graph construction.</li>
+ *   <li>{@code addDocumentsOnly} — measures only addDocument() time (no commit/flush). Deferred is
+ *       O(1)/doc (flat vector store), inline is O(log N * beamWidth)/doc (graph insertion). This
+ *       isolates the indexing-thread cost. Divide numVectors by the result to get docs/sec throughput.</li>
  *   <li>{@code indexAndFlush} — measures full cycle: add all docs + commit (flush + graph build) + kNN
- *       search. Total wall-clock should be comparable since the graph work is done either way; deferred
- *       mode trades faster addDocument() for a heavier commit.</li>
+ *       search. Total wall-clock is comparable since graph work is done either way; deferred mode
+ *       trades faster addDocument() for a heavier commit.</li>
  * </ul>
  *
  * <p>Run with: {@code ./gradlew -p benchmarks run --args 'HnswIndexingBenchmark'}
@@ -118,7 +118,9 @@ public class HnswIndexingBenchmark {
 
     @Setup(Level.Iteration)
     public void setupIteration() throws IOException {
-        tempDir = Files.createTempDirectory("hnsw-bench");
+        Path base = Path.of(System.getProperty("hnsw.bench.tmpdir", System.getProperty("java.io.tmpdir")));
+        Files.createDirectories(base);
+        tempDir = Files.createTempDirectory(base, "hnsw-bench");
     }
 
     @TearDown(Level.Iteration)

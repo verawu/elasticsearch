@@ -229,6 +229,34 @@ Inline mode scales super-linearly — each insertion traverses a growing graph. 
 
 Inline cost grows linearly with dims (each neighbor comparison is O(dims)). Deferred stays flat — memcpy cost is trivial regardless of dimension.
 
+### Indexing Throughput (derived from `addDocumentsOnly`)
+
+The same data expressed as **docs/sec** — the indexing thread's effective throughput:
+
+#### Scaling by vector count (dims=128)
+
+| numVectors | inline (docs/sec) | deferred (docs/sec) | speedup |
+|------------|-------------------|---------------------|---------|
+| 5,000      | 7,874             | 384,615             | **49x** |
+| 10,000     | 9,590             | 1,828,154           | **191x** |
+| 25,000     | 7,290             | 2,189,826           | **300x** |
+| 50,000     | 6,013             | 1,708,268           | **284x** |
+| 100,000    | 4,606             | 1,859,671           | **404x** |
+
+Inline throughput degrades as the corpus grows (graph traversal gets deeper). Deferred throughput stays above **1M docs/sec** regardless of corpus size — the indexing thread is essentially bottlenecked only by memory bandwidth.
+
+#### Scaling by dimension (numVectors=50,000)
+
+| dims | inline (docs/sec) | deferred (docs/sec) | speedup |
+|------|-------------------|---------------------|---------|
+| 64   | 8,367             | 1,173,021           | **140x** |
+| 128  | 5,489             | 1,447,178           | **264x** |
+| 256  | 4,410             | 1,439,001           | **326x** |
+| 512  | 2,217             | 737,681             | **333x** |
+| 768  | 1,523             | 494,201             | **324x** |
+
+At 768 dims, inline can only index **1,523 docs/sec** on the indexing thread. Deferred still achieves **494K docs/sec** — a 324x improvement. This is the throughput that the indexing thread has available for other work (search, merges, refresh) in a real cluster.
+
 ### `indexAndFlush` — Full Cycle (add + commit/graph build + kNN search)
 
 Total wall-clock time is comparable because the graph work is done either way — deferred mode just moves it from `addDocument()` to `commit()`.
