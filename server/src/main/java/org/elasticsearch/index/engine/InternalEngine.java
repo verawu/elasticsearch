@@ -1150,7 +1150,7 @@ public class InternalEngine extends Engine {
     public IndexResult index(Index index) throws IOException {
         final boolean doThrottle = index.origin().isRecovery() == false;
         if (doThrottle && vectorBuildExecutorService != null) {
-            boolean shouldThrottle = vectorBuildExecutorService.shouldThrottleIndexing();
+            boolean shouldThrottle = vectorBuildExecutorService.shouldThrottleIndexing(shardId.getIndexName());
             if (shouldThrottle && vectorBuildThrottleActive.compareAndSet(false, true)) {
                 logger.info("vector graph build queue saturated, throttling indexing");
                 activateThrottling();

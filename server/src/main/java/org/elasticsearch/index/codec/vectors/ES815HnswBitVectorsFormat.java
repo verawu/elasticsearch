@@ -38,6 +38,7 @@ public class ES815HnswBitVectorsFormat extends KnnVectorsFormat {
 
     @Nullable
     private final VectorBuildExecutorService buildService;
+    private final String indexName;
 
     public ES815HnswBitVectorsFormat() {
         this(16, 100, null);
@@ -48,6 +49,15 @@ public class ES815HnswBitVectorsFormat extends KnnVectorsFormat {
     }
 
     public ES815HnswBitVectorsFormat(int maxConn, int beamWidth, @Nullable VectorBuildExecutorService buildService) {
+        this(maxConn, beamWidth, buildService, null);
+    }
+
+    public ES815HnswBitVectorsFormat(
+        int maxConn,
+        int beamWidth,
+        @Nullable VectorBuildExecutorService buildService,
+        @Nullable String indexName
+    ) {
         super(NAME);
         if (maxConn <= 0 || maxConn > MAXIMUM_MAX_CONN) {
             throw new IllegalArgumentException(
@@ -62,12 +72,15 @@ public class ES815HnswBitVectorsFormat extends KnnVectorsFormat {
         this.maxConn = maxConn;
         this.beamWidth = beamWidth;
         this.buildService = buildService;
+        this.indexName = indexName;
     }
 
     @Override
     public KnnVectorsWriter fieldsWriter(SegmentWriteState state) throws IOException {
         if (buildService != null) {
-            return new DeferredHnswVectorsWriter(state, maxConn, beamWidth, flatVectorsFormat.fieldsWriter(state), buildService, 1, null);
+            return new DeferredHnswVectorsWriter(
+                state, maxConn, beamWidth, flatVectorsFormat.fieldsWriter(state), buildService, indexName, 1, null
+            );
         }
         return new Lucene99HnswVectorsWriter(state, maxConn, beamWidth, flatVectorsFormat.fieldsWriter(state), 1, null);
     }

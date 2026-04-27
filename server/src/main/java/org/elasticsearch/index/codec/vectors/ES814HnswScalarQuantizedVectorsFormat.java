@@ -42,6 +42,7 @@ public final class ES814HnswScalarQuantizedVectorsFormat extends KnnVectorsForma
 
     @Nullable
     private final VectorBuildExecutorService buildService;
+    private final String indexName;
 
     public ES814HnswScalarQuantizedVectorsFormat() {
         this(DEFAULT_MAX_CONN, DEFAULT_BEAM_WIDTH, null, 7, false);
@@ -59,6 +60,18 @@ public final class ES814HnswScalarQuantizedVectorsFormat extends KnnVectorsForma
         boolean compress,
         @Nullable VectorBuildExecutorService buildService
     ) {
+        this(maxConn, beamWidth, confidenceInterval, bits, compress, buildService, null);
+    }
+
+    public ES814HnswScalarQuantizedVectorsFormat(
+        int maxConn,
+        int beamWidth,
+        Float confidenceInterval,
+        int bits,
+        boolean compress,
+        @Nullable VectorBuildExecutorService buildService,
+        @Nullable String indexName
+    ) {
         super(NAME);
         if (maxConn <= 0 || maxConn > MAXIMUM_MAX_CONN) {
             throw new IllegalArgumentException(
@@ -74,12 +87,15 @@ public final class ES814HnswScalarQuantizedVectorsFormat extends KnnVectorsForma
         this.beamWidth = beamWidth;
         this.flatVectorsFormat = new ES814ScalarQuantizedVectorsFormat(confidenceInterval, bits, compress);
         this.buildService = buildService;
+        this.indexName = indexName;
     }
 
     @Override
     public KnnVectorsWriter fieldsWriter(SegmentWriteState state) throws IOException {
         if (buildService != null) {
-            return new DeferredHnswVectorsWriter(state, maxConn, beamWidth, flatVectorsFormat.fieldsWriter(state), buildService, 1, null);
+            return new DeferredHnswVectorsWriter(
+                state, maxConn, beamWidth, flatVectorsFormat.fieldsWriter(state), buildService, indexName, 1, null
+            );
         }
         return new Lucene99HnswVectorsWriter(state, maxConn, beamWidth, flatVectorsFormat.fieldsWriter(state), 1, null);
     }

@@ -99,7 +99,8 @@ public class PerFieldFormatSupplier {
         if (mapperService != null) {
             Mapper mapper = mapperService.mappingLookup().getMapper(field);
             if (mapper instanceof DenseVectorFieldMapper vectorMapper) {
-                return vectorMapper.getKnnVectorsFormatForField(knnVectorsFormat, vectorBuildExecutorService);
+                String indexName = mapperService.getIndexSettings().getIndex().getName();
+                return vectorMapper.getKnnVectorsFormatForField(knnVectorsFormat, vectorBuildExecutorService, indexName);
             }
         }
         return knnVectorsFormat;

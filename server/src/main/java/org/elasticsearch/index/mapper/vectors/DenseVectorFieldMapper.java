@@ -1228,7 +1228,11 @@ public class DenseVectorFieldMapper extends FieldMapper {
 
         abstract KnnVectorsFormat getVectorsFormat(ElementType elementType);
 
-        KnnVectorsFormat getVectorsFormat(ElementType elementType, @Nullable VectorBuildExecutorService buildService) {
+        KnnVectorsFormat getVectorsFormat(
+            ElementType elementType,
+            @Nullable VectorBuildExecutorService buildService,
+            @Nullable String indexName
+        ) {
             return getVectorsFormat(elementType);
         }
 
@@ -1672,9 +1676,13 @@ public class DenseVectorFieldMapper extends FieldMapper {
         }
 
         @Override
-        KnnVectorsFormat getVectorsFormat(ElementType elementType, @Nullable VectorBuildExecutorService buildService) {
+        KnnVectorsFormat getVectorsFormat(
+            ElementType elementType,
+            @Nullable VectorBuildExecutorService buildService,
+            @Nullable String indexName
+        ) {
             assert elementType == ElementType.FLOAT;
-            return new ES814HnswScalarQuantizedVectorsFormat(m, efConstruction, confidenceInterval, 4, true, buildService);
+            return new ES814HnswScalarQuantizedVectorsFormat(m, efConstruction, confidenceInterval, 4, true, buildService, indexName);
         }
 
         @Override
@@ -1813,9 +1821,13 @@ public class DenseVectorFieldMapper extends FieldMapper {
         }
 
         @Override
-        KnnVectorsFormat getVectorsFormat(ElementType elementType, @Nullable VectorBuildExecutorService buildService) {
+        KnnVectorsFormat getVectorsFormat(
+            ElementType elementType,
+            @Nullable VectorBuildExecutorService buildService,
+            @Nullable String indexName
+        ) {
             assert elementType == ElementType.FLOAT;
-            return new ES814HnswScalarQuantizedVectorsFormat(m, efConstruction, confidenceInterval, 7, false, buildService);
+            return new ES814HnswScalarQuantizedVectorsFormat(m, efConstruction, confidenceInterval, 7, false, buildService, indexName);
         }
 
         @Override
@@ -1903,14 +1915,18 @@ public class DenseVectorFieldMapper extends FieldMapper {
         }
 
         @Override
-        KnnVectorsFormat getVectorsFormat(ElementType elementType, @Nullable VectorBuildExecutorService buildService) {
+        KnnVectorsFormat getVectorsFormat(
+            ElementType elementType,
+            @Nullable VectorBuildExecutorService buildService,
+            @Nullable String indexName
+        ) {
             if (buildService == null) {
                 return getVectorsFormat(elementType);
             }
             if (elementType == ElementType.BIT) {
-                return new ES815HnswBitVectorsFormat(m, efConstruction, buildService);
+                return new ES815HnswBitVectorsFormat(m, efConstruction, buildService, indexName);
             }
-            return new ESHnswVectorsFormat(m, efConstruction, buildService);
+            return new ESHnswVectorsFormat(m, efConstruction, buildService, indexName);
         }
 
         @Override
@@ -1973,9 +1989,13 @@ public class DenseVectorFieldMapper extends FieldMapper {
         }
 
         @Override
-        KnnVectorsFormat getVectorsFormat(ElementType elementType, @Nullable VectorBuildExecutorService buildService) {
+        KnnVectorsFormat getVectorsFormat(
+            ElementType elementType,
+            @Nullable VectorBuildExecutorService buildService,
+            @Nullable String indexName
+        ) {
             assert elementType == ElementType.FLOAT;
-            return new ES818HnswBinaryQuantizedVectorsFormat(m, efConstruction, 1, null, buildService);
+            return new ES818HnswBinaryQuantizedVectorsFormat(m, efConstruction, 1, null, buildService, indexName);
         }
 
         @Override
@@ -2626,22 +2646,25 @@ public class DenseVectorFieldMapper extends FieldMapper {
      * {@code null} if the default format should be used.
      */
     public KnnVectorsFormat getKnnVectorsFormatForField(KnnVectorsFormat defaultFormat) {
-        return getKnnVectorsFormatForField(defaultFormat, null);
+        return getKnnVectorsFormatForField(defaultFormat, null, null);
     }
 
     public KnnVectorsFormat getKnnVectorsFormatForField(
         KnnVectorsFormat defaultFormat,
-        @Nullable VectorBuildExecutorService buildService
+        @Nullable VectorBuildExecutorService buildService,
+        @Nullable String indexName
     ) {
         final KnnVectorsFormat format;
         if (indexOptions == null) {
             if (fieldType().elementType == ElementType.BIT) {
-                format = buildService != null ? new ES815HnswBitVectorsFormat(16, 100, buildService) : new ES815HnswBitVectorsFormat();
+                format = buildService != null
+                    ? new ES815HnswBitVectorsFormat(16, 100, buildService, indexName)
+                    : new ES815HnswBitVectorsFormat();
             } else {
                 format = defaultFormat;
             }
         } else {
-            format = indexOptions.getVectorsFormat(fieldType().elementType, buildService);
+            format = indexOptions.getVectorsFormat(fieldType().elementType, buildService, indexName);
         }
         // It's legal to reuse the same format name as this is the same on-disk format.
         return new KnnVectorsFormat(format.getName()) {

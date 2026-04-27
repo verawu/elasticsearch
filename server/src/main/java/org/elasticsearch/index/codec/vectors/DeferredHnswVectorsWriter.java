@@ -36,6 +36,7 @@ import org.apache.lucene.util.hnsw.OnHeapHnswGraph;
 import org.apache.lucene.util.hnsw.RandomAccessVectorValues;
 import org.apache.lucene.util.hnsw.RandomVectorScorerSupplier;
 import org.apache.lucene.util.packed.DirectMonotonicWriter;
+import org.elasticsearch.core.Nullable;
 import org.elasticsearch.index.engine.VectorBuildExecutorService;
 
 import java.io.IOException;
@@ -72,6 +73,7 @@ public final class DeferredHnswVectorsWriter extends KnnVectorsWriter {
     private final int beamWidth;
     private final FlatVectorsWriter flatVectorWriter;
     private final VectorBuildExecutorService buildService;
+    private final String indexName;
     private final int numMergeWorkers;
     private final TaskExecutor mergeExec;
 
@@ -84,6 +86,7 @@ public final class DeferredHnswVectorsWriter extends KnnVectorsWriter {
         int beamWidth,
         FlatVectorsWriter flatVectorWriter,
         VectorBuildExecutorService buildService,
+        @Nullable String indexName,
         int numMergeWorkers,
         TaskExecutor mergeExec
     ) throws IOException {
@@ -91,6 +94,7 @@ public final class DeferredHnswVectorsWriter extends KnnVectorsWriter {
         this.beamWidth = beamWidth;
         this.flatVectorWriter = flatVectorWriter;
         this.buildService = buildService;
+        this.indexName = indexName != null ? indexName : "_unknown";
         this.numMergeWorkers = numMergeWorkers;
         this.mergeExec = mergeExec;
         this.segmentWriteState = state;
@@ -172,6 +176,7 @@ public final class DeferredHnswVectorsWriter extends KnnVectorsWriter {
 
         long estimatedCostBytes = (long) vectorCount * field.fieldInfo.getVectorDimension() * 4;
         CompletableFuture<OnHeapHnswGraph> graphFuture = buildService.submitBuildTask(
+            indexName,
             () -> builder.build(vectorCount),
             estimatedCostBytes
         );

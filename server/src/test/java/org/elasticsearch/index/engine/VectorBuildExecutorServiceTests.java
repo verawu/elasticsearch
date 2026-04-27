@@ -47,7 +47,7 @@ public class VectorBuildExecutorServiceTests extends ESTestCase {
 
     public void testSubmitAndComplete() throws Exception {
         VectorBuildExecutorService service = new VectorBuildExecutorService(threadPool, 4);
-        CompletableFuture<String> future = service.submitBuildTask(() -> "hello", 1024);
+        CompletableFuture<String> future = service.submitBuildTask("test-index", () -> "hello", 1024);
         assertThat(future.get(10, TimeUnit.SECONDS), equalTo("hello"));
         assertBusy(() -> {
             assertThat(service.getCompletedTasks(), equalTo(1L));
@@ -59,7 +59,7 @@ public class VectorBuildExecutorServiceTests extends ESTestCase {
     public void testSubmitWhenClosed() {
         VectorBuildExecutorService service = new VectorBuildExecutorService(threadPool, 4);
         service.close();
-        CompletableFuture<String> future = service.submitBuildTask(() -> "should fail", 1024);
+        CompletableFuture<String> future = service.submitBuildTask("test-index", () -> "should fail", 1024);
         assertTrue(future.isCompletedExceptionally());
         CompletionException ce = expectThrows(CompletionException.class, future::join);
         assertThat(ce.getCause(), instanceOf(RejectedExecutionException.class));
@@ -74,7 +74,7 @@ public class VectorBuildExecutorServiceTests extends ESTestCase {
         List<CompletableFuture<Integer>> futures = new ArrayList<>();
         for (int i = 0; i < taskCount; i++) {
             final int idx = i;
-            futures.add(service.submitBuildTask(() -> {
+            futures.add(service.submitBuildTask("test-index", () -> {
                 allStarted.countDown();
                 gate.acquire();
                 return idx;
@@ -103,20 +103,20 @@ public class VectorBuildExecutorServiceTests extends ESTestCase {
         Semaphore gate = new Semaphore(0);
         List<CompletableFuture<Void>> futures = new ArrayList<>();
         for (int i = 0; i < taskCount; i++) {
-            futures.add(service.submitBuildTask(() -> {
+            futures.add(service.submitBuildTask("test-index", () -> {
                 gate.acquire();
                 return null;
             }, 1024));
         }
 
-        assertBusy(() -> assertTrue("should throttle when queue is saturated", service.shouldThrottleIndexing()));
+        assertBusy(() -> assertTrue("should throttle when queue is saturated", service.shouldThrottleIndexing("test-index")));
 
         gate.release(taskCount);
         for (CompletableFuture<Void> f : futures) {
             f.get(30, TimeUnit.SECONDS);
         }
 
-        assertBusy(() -> assertFalse("should not throttle when queue is drained", service.shouldThrottleIndexing()));
+        assertBusy(() -> assertFalse("should not throttle when queue is drained", service.shouldThrottleIndexing("test-index")));
         service.close();
     }
 
@@ -125,7 +125,7 @@ public class VectorBuildExecutorServiceTests extends ESTestCase {
         int taskCount = 5;
         List<CompletableFuture<Void>> futures = new ArrayList<>();
         for (int i = 0; i < taskCount; i++) {
-            futures.add(service.submitBuildTask(() -> {
+            futures.add(service.submitBuildTask("test-index", () -> {
                 Thread.sleep(1);
                 return null;
             }, 2048));
@@ -149,16 +149,16 @@ public class VectorBuildExecutorServiceTests extends ESTestCase {
         int taskCount = 10;
         List<CompletableFuture<Void>> futures = new ArrayList<>();
         for (int i = 0; i < taskCount; i++) {
-            futures.add(service.submitBuildTask(() -> {
+            futures.add(service.submitBuildTask("test-index", () -> {
                 gate.acquire();
                 return null;
             }, 1024));
         }
 
-        assertBusy(() -> assertTrue(service.shouldThrottleIndexing()));
+        assertBusy(() -> assertTrue(service.shouldThrottleIndexing("test-index")));
 
         service.setMaxConcurrentBuilds(100);
-        assertFalse("after raising max, should no longer throttle", service.shouldThrottleIndexing());
+        assertFalse("after raising max, should no longer throttle", service.shouldThrottleIndexing("test-index"));
 
         gate.release(taskCount);
         for (CompletableFuture<Void> f : futures) {
@@ -170,7 +170,7 @@ public class VectorBuildExecutorServiceTests extends ESTestCase {
     public void testTaskFailurePropagation() throws Exception {
         VectorBuildExecutorService service = new VectorBuildExecutorService(threadPool, 4);
         RuntimeException expected = new RuntimeException("build failed");
-        CompletableFuture<Void> future = service.submitBuildTask(() -> { throw expected; }, 1024);
+        CompletableFuture<Void> future = service.submitBuildTask("test-index", () -> { throw expected; }, 1024);
 
         CompletionException ce = expectThrows(CompletionException.class, future::join);
         assertThat(ce.getCause(), is(expected));
@@ -183,7 +183,7 @@ public class VectorBuildExecutorServiceTests extends ESTestCase {
         CountDownLatch taskStarted = new CountDownLatch(1);
         Semaphore gate = new Semaphore(0);
 
-        CompletableFuture<String> future = service.submitBuildTask(() -> {
+        CompletableFuture<String> future = service.submitBuildTask("test-index", () -> {
             taskStarted.countDown();
             gate.acquire();
             return "done";

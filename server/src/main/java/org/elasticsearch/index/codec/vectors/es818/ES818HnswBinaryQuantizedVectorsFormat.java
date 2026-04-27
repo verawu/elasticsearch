@@ -72,6 +72,7 @@ public class ES818HnswBinaryQuantizedVectorsFormat extends KnnVectorsFormat {
 
     @Nullable
     private final VectorBuildExecutorService buildService;
+    private final String indexName;
 
     /** Constructs a format using default graph construction parameters */
     public ES818HnswBinaryQuantizedVectorsFormat() {
@@ -92,6 +93,17 @@ public class ES818HnswBinaryQuantizedVectorsFormat extends KnnVectorsFormat {
         int numMergeWorkers,
         ExecutorService mergeExec,
         @Nullable VectorBuildExecutorService buildService
+    ) {
+        this(maxConn, beamWidth, numMergeWorkers, mergeExec, buildService, null);
+    }
+
+    public ES818HnswBinaryQuantizedVectorsFormat(
+        int maxConn,
+        int beamWidth,
+        int numMergeWorkers,
+        ExecutorService mergeExec,
+        @Nullable VectorBuildExecutorService buildService,
+        @Nullable String indexName
     ) {
         super(NAME);
         if (maxConn <= 0 || maxConn > MAXIMUM_MAX_CONN) {
@@ -116,6 +128,7 @@ public class ES818HnswBinaryQuantizedVectorsFormat extends KnnVectorsFormat {
             this.mergeExec = null;
         }
         this.buildService = buildService;
+        this.indexName = indexName;
     }
 
     @Override
@@ -127,6 +140,7 @@ public class ES818HnswBinaryQuantizedVectorsFormat extends KnnVectorsFormat {
                 beamWidth,
                 flatVectorsFormat.fieldsWriter(state),
                 buildService,
+                indexName,
                 numMergeWorkers,
                 mergeExec
             );

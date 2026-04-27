@@ -40,23 +40,36 @@ public final class ESHnswVectorsFormat extends KnnVectorsFormat {
     private final int beamWidth;
     private final FlatVectorsFormat flatVectorsFormat;
     private final VectorBuildExecutorService buildService;
+    private final String indexName;
 
     public ESHnswVectorsFormat() {
         this(DEFAULT_MAX_CONN, DEFAULT_BEAM_WIDTH, null);
     }
 
     public ESHnswVectorsFormat(int maxConn, int beamWidth, @Nullable VectorBuildExecutorService buildService) {
+        this(maxConn, beamWidth, buildService, null);
+    }
+
+    public ESHnswVectorsFormat(
+        int maxConn,
+        int beamWidth,
+        @Nullable VectorBuildExecutorService buildService,
+        @Nullable String indexName
+    ) {
         super(NAME);
         this.maxConn = maxConn;
         this.beamWidth = beamWidth;
         this.flatVectorsFormat = new Lucene99FlatVectorsFormat(DefaultFlatVectorScorer.INSTANCE);
         this.buildService = buildService;
+        this.indexName = indexName;
     }
 
     @Override
     public KnnVectorsWriter fieldsWriter(SegmentWriteState state) throws IOException {
         if (buildService != null) {
-            return new DeferredHnswVectorsWriter(state, maxConn, beamWidth, flatVectorsFormat.fieldsWriter(state), buildService, 1, null);
+            return new DeferredHnswVectorsWriter(
+                state, maxConn, beamWidth, flatVectorsFormat.fieldsWriter(state), buildService, indexName, 1, null
+            );
         }
         return new Lucene99HnswVectorsWriter(state, maxConn, beamWidth, flatVectorsFormat.fieldsWriter(state), 1, null);
     }

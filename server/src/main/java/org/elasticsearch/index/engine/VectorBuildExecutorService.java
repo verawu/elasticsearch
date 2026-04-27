@@ -54,6 +54,7 @@ public class VectorBuildExecutorService implements Closeable {
 
     private final ExecutorService executorService;
     private final Set<CompletableFuture<?>> inFlightFutures = ConcurrentHashMap.newKeySet();
+    private final ConcurrentHashMap<String, AtomicInteger> perIndexInFlight = new ConcurrentHashMap<>();
     private final AtomicInteger pendingTasks = new AtomicInteger();
     private final AtomicInteger runningTasks = new AtomicInteger();
     private final AtomicLong completedTasks = new AtomicLong();
@@ -72,21 +73,29 @@ public class VectorBuildExecutorService implements Closeable {
     /**
      * Submits an HNSW graph build task for background execution.
      *
+     * @param indexName the index this build belongs to (used for per-index fair scheduling)
      * @param task the graph construction callable
      * @param estimatedCostBytes estimated memory cost (used for backpressure decisions)
      * @return a future that completes with the callable's result when the graph is built
      */
-    public <T> CompletableFuture<T> submitBuildTask(Callable<T> task, long estimatedCostBytes) {
+    public <T> CompletableFuture<T> submitBuildTask(String indexName, Callable<T> task, long estimatedCostBytes) {
         if (closed) {
             return CompletableFuture.failedFuture(new RejectedExecutionException("VectorBuildExecutorService is closed"));
         }
 
         pendingTasks.incrementAndGet();
+        perIndexInFlight.computeIfAbsent(indexName, k -> new AtomicInteger()).incrementAndGet();
         long queueStartNanos = System.nanoTime();
 
         CompletableFuture<T> future = new CompletableFuture<>();
         inFlightFutures.add(future);
-        future.whenComplete((r, t) -> inFlightFutures.remove(future));
+        future.whenComplete((r, t) -> {
+            inFlightFutures.remove(future);
+            AtomicInteger counter = perIndexInFlight.get(indexName);
+            if (counter != null && counter.decrementAndGet() <= 0) {
+                perIndexInFlight.remove(indexName, counter);
+            }
+        });
         try {
             executorService.execute(() -> {
                 pendingTasks.decrementAndGet();
@@ -107,6 +116,10 @@ public class VectorBuildExecutorService implements Closeable {
             });
         } catch (RejectedExecutionException e) {
             pendingTasks.decrementAndGet();
+            AtomicInteger counter = perIndexInFlight.get(indexName);
+            if (counter != null && counter.decrementAndGet() <= 0) {
+                perIndexInFlight.remove(indexName, counter);
+            }
             future.completeExceptionally(e);
         }
 
@@ -114,10 +127,21 @@ public class VectorBuildExecutorService implements Closeable {
     }
 
     /**
-     * Returns true if indexing should be throttled due to too many pending graph builds.
+     * Returns true if indexing should be throttled for the given index.
+     * Throttles when either: (a) the global queue is saturated, or
+     * (b) this index alone exceeds its fair share of the build capacity.
      */
-    public boolean shouldThrottleIndexing() {
-        return pendingTasks.get() + runningTasks.get() > maxConcurrentBuilds * 3;
+    public boolean shouldThrottleIndexing(String indexName) {
+        int globalThreshold = maxConcurrentBuilds * 3;
+        int totalInFlight = pendingTasks.get() + runningTasks.get();
+        if (totalInFlight > globalThreshold) {
+            return true;
+        }
+        AtomicInteger counter = perIndexInFlight.get(indexName);
+        int indexInFlight = counter != null ? counter.get() : 0;
+        int activeIndices = Math.max(1, perIndexInFlight.size());
+        int fairShare = Math.max(1, globalThreshold / activeIndices);
+        return indexInFlight > fairShare;
     }
 
     public DenseVectorStats.VectorBuildStats stats() {
