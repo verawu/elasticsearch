@@ -354,7 +354,7 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
         this.indexEventListener = indexEventListener;
         this.threadPool = threadPool;
         this.threadPoolMergeExecutorService = threadPoolMergeExecutorService;
-        this.vectorBuildExecutorService = vectorBuildExecutorService;
+        this.vectorBuildExecutorService = deferredVectorBuild ? vectorBuildExecutorService : null;
         this.mapperService = mapperService;
         this.indexCache = indexCache;
         this.internalIndexingStats = new InternalIndexingStats();
