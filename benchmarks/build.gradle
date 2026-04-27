@@ -46,7 +46,7 @@ dependencies {
   api(project(':x-pack:plugin:esql-core'))
   api(project(':x-pack:plugin:esql'))
   api(project(':x-pack:plugin:esql:compute'))
-  api(project(':x-pack:plugin:ivf-pq-vectors'))
+  api(project(':x-pack:plugin:ivf-hnsw-int8-vectors'))
   implementation project(path: ':libs:simdvec')
   expression(project(path: ':modules:lang-expression', configuration: 'zip'))
   painless(project(path: ':modules:lang-painless', configuration: 'zip'))
@@ -65,7 +65,7 @@ tasks.named("compileJava").configure {
   // org.elasticsearch.plugins.internal is used in signatures classes used in benchmarks but we don't want to expose it publicly
   // adding an export to allow compilation with gradle. This does not solve a problem in intellij as it does not use compileJava task
   options.compilerArgs.addAll(["--add-exports", "org.elasticsearch.server/org.elasticsearch.plugins.internal=ALL-UNNAMED"])
-  options.compilerArgs.addAll(["--add-exports", "org.elasticsearch.ivfpq.vectors/org.elasticsearch.xpack.ivfpq.codec=ALL-UNNAMED"])
+  options.compilerArgs.addAll(["--add-exports", "org.elasticsearch.ivfhnswint8.vectors/org.elasticsearch.xpack.ivfhnswint8.codec=ALL-UNNAMED"])
 }
 
 tasks.register('copyExpression', Copy) {

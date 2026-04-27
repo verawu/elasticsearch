@@ -27,7 +27,7 @@ import org.apache.lucene.store.MMapDirectory;
 import org.elasticsearch.common.logging.LogConfigurator;
 import org.elasticsearch.index.codec.vectors.ES813FlatVectorFormat;
 import org.elasticsearch.index.codec.vectors.ES814HnswScalarQuantizedVectorsFormat;
-import org.elasticsearch.xpack.ivfpq.codec.IvfPqVectorsFormat;
+import org.elasticsearch.xpack.ivfhnswint8.codec.IvfHnswInt8VectorsFormat;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.BenchmarkMode;
 import org.openjdk.jmh.annotations.Fork;
@@ -68,7 +68,7 @@ public class VectorSearchBenchmark {
     private static final int NUM_QUERIES = 100;
     private static final String FIELD = "vec";
 
-    @Param({ "flat", "int8_hnsw", "ivfpq" })
+    @Param({ "flat", "int8_hnsw", "ivf_hnsw_int8" })
     String format;
 
     @Param({ "128", "768" })
@@ -190,9 +190,9 @@ public class VectorSearchBenchmark {
         KnnVectorsFormat vectorsFormat = switch (format) {
             case "flat" -> new ES813FlatVectorFormat();
             case "int8_hnsw" -> new ES814HnswScalarQuantizedVectorsFormat(16, 100, null, 7, false);
-            case "ivfpq" -> {
+            case "ivf_hnsw_int8" -> {
                 int nprobe = nprobeParam > 0 ? nprobeParam : Math.min(nlist, 32);
-                yield new IvfPqVectorsFormat(nlist, nprobe, 7, 100, 25);
+                yield new IvfHnswInt8VectorsFormat(nlist, nprobe, 7, 100, 25);
             }
             default -> throw new IllegalArgumentException("Unknown format: " + format);
         };
