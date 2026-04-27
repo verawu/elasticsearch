@@ -67,7 +67,7 @@ public class VectorBuildExecutorService implements Closeable {
         this.executorService = threadPool.executor(ThreadPool.Names.VECTOR_BUILD);
         this.maxConcurrentBuilds = maxConcurrentBuilds > 0
             ? maxConcurrentBuilds
-            : Runtime.getRuntime().availableProcessors();
+            : defaultMaxConcurrent();
     }
 
     /**
@@ -200,7 +200,12 @@ public class VectorBuildExecutorService implements Closeable {
     public void setMaxConcurrentBuilds(int maxConcurrentBuilds) {
         this.maxConcurrentBuilds = maxConcurrentBuilds > 0
             ? maxConcurrentBuilds
-            : Runtime.getRuntime().availableProcessors();
+            : defaultMaxConcurrent();
+    }
+
+    static int defaultMaxConcurrent() {
+        int procs = Runtime.getRuntime().availableProcessors();
+        return Math.max(1, Math.min((procs + 1) / 2, 5));
     }
 
     @Override
