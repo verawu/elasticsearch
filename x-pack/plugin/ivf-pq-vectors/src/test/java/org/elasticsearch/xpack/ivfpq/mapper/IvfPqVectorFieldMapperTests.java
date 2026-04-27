@@ -12,16 +12,15 @@ import org.apache.lucene.search.Query;
 import org.elasticsearch.index.mapper.LuceneDocument;
 import org.elasticsearch.index.mapper.MappedFieldType;
 import org.elasticsearch.index.mapper.MapperParsingException;
+import org.elasticsearch.index.mapper.MapperService;
 import org.elasticsearch.index.mapper.MapperTestCase;
+import org.elasticsearch.index.mapper.ParsedDocument;
+import org.elasticsearch.index.mapper.SourceToParse;
 import org.elasticsearch.index.mapper.ValueFetcher;
 import org.elasticsearch.index.query.SearchExecutionContext;
 import org.elasticsearch.plugins.Plugin;
 import org.elasticsearch.search.lookup.Source;
 import org.elasticsearch.search.lookup.SourceProvider;
-import org.elasticsearch.index.mapper.MapperService;
-import org.elasticsearch.index.mapper.ParsedDocument;
-import org.elasticsearch.index.mapper.SourceToParse;
-import org.elasticsearch.test.ESTestCase;
 import org.elasticsearch.xcontent.XContentBuilder;
 import org.elasticsearch.xpack.ivfpq.LocalStateIvfPqVectors;
 import org.junit.AssumptionViolatedException;
@@ -68,9 +67,9 @@ public class IvfPqVectorFieldMapperTests extends MapperTestCase {
             fieldMapping(b -> b.field("type", "ivfpq_vector").field("dims", 8).field("similarity", "dot_product"))
         );
         checker.registerConflictCheck(
-            "m",
-            fieldMapping(b -> b.field("type", "ivfpq_vector").field("dims", 8).field("m", 8)),
-            fieldMapping(b -> b.field("type", "ivfpq_vector").field("dims", 8).field("m", 4))
+            "sq_bits",
+            fieldMapping(b -> b.field("type", "ivfpq_vector").field("dims", 8).field("sq_bits", 7)),
+            fieldMapping(b -> b.field("type", "ivfpq_vector").field("dims", 8).field("sq_bits", 8))
         );
         checker.registerUpdateCheck(
             b -> b.field("type", "ivfpq_vector").field("dims", 8).field("nlist", 256),
@@ -190,13 +189,6 @@ public class IvfPqVectorFieldMapperTests extends MapperTestCase {
         assertThat(e.getMessage(), containsString("dims must be between 1 and 4096"));
     }
 
-    public void testDimsNotDivisibleByM() {
-        Exception e = expectThrows(MapperParsingException.class, () -> createMapperService(fieldMapping(b -> {
-            b.field("type", "ivfpq_vector").field("dims", 10).field("m", 3);
-        })));
-        assertThat(e.getMessage(), containsString("dims [10] must be divisible by m [3]"));
-    }
-
     public void testNprobeExceedsNlist() {
         Exception e = expectThrows(MapperParsingException.class, () -> createMapperService(fieldMapping(b -> {
             b.field("type", "ivfpq_vector").field("dims", 8).field("nlist", 4).field("nprobe", 8);
@@ -204,11 +196,11 @@ public class IvfPqVectorFieldMapperTests extends MapperTestCase {
         assertThat(e.getMessage(), containsString("nprobe [8] must be <= nlist [4]"));
     }
 
-    public void testInvalidNbits() {
+    public void testInvalidSqBits() {
         Exception e = expectThrows(MapperParsingException.class, () -> createMapperService(fieldMapping(b -> {
-            b.field("type", "ivfpq_vector").field("dims", 8).field("nbits", 4);
+            b.field("type", "ivfpq_vector").field("dims", 8).field("sq_bits", 3);
         })));
-        assertThat(e.getMessage(), containsString("Only nbits=8 is currently supported"));
+        assertThat(e.getMessage(), containsString("sq_bits must be 4, 7, or 8"));
     }
 
     public void testCannotBeUsedInMultifields() {
@@ -225,7 +217,7 @@ public class IvfPqVectorFieldMapperTests extends MapperTestCase {
 
     public void testNaNVector() throws Exception {
         MapperService mapperService = createMapperService(fieldMapping(b -> {
-            b.field("type", "ivfpq_vector").field("dims", 4).field("m", 4);
+            b.field("type", "ivfpq_vector").field("dims", 4);
         }));
         Exception e = expectThrows(org.elasticsearch.index.mapper.DocumentParsingException.class, () -> {
             mapperService.documentMapper().parse(source(b -> b.field("field", List.of(1.0, Float.NaN, 0.0, 0.0))));
@@ -235,7 +227,7 @@ public class IvfPqVectorFieldMapperTests extends MapperTestCase {
 
     public void testInfinityVector() throws Exception {
         MapperService mapperService = createMapperService(fieldMapping(b -> {
-            b.field("type", "ivfpq_vector").field("dims", 4).field("m", 4);
+            b.field("type", "ivfpq_vector").field("dims", 4);
         }));
         Exception e = expectThrows(org.elasticsearch.index.mapper.DocumentParsingException.class, () -> {
             mapperService.documentMapper()
@@ -246,7 +238,7 @@ public class IvfPqVectorFieldMapperTests extends MapperTestCase {
 
     public void testZeroMagnitudeCosineVector() throws Exception {
         MapperService mapperService = createMapperService(fieldMapping(b -> {
-            b.field("type", "ivfpq_vector").field("dims", 4).field("m", 4).field("similarity", "cosine");
+            b.field("type", "ivfpq_vector").field("dims", 4).field("similarity", "cosine");
         }));
         Exception e = expectThrows(org.elasticsearch.index.mapper.DocumentParsingException.class, () -> {
             mapperService.documentMapper().parse(source(b -> b.field("field", List.of(0.0, 0.0, 0.0, 0.0))));
@@ -259,13 +251,6 @@ public class IvfPqVectorFieldMapperTests extends MapperTestCase {
             b.field("type", "ivfpq_vector").field("dims", 8).field("nlist", 0);
         })));
         assertThat(e.getMessage(), containsString("nlist must be > 0"));
-    }
-
-    public void testMZero() {
-        Exception e = expectThrows(MapperParsingException.class, () -> createMapperService(fieldMapping(b -> {
-            b.field("type", "ivfpq_vector").field("dims", 8).field("m", 0);
-        })));
-        assertThat(e.getMessage(), containsString("m must be > 0"));
     }
 
     public void testNprobeZero() {

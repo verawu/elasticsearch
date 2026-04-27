@@ -12,13 +12,11 @@ import org.apache.lucene.codecs.KnnVectorsReader;
 import org.apache.lucene.codecs.KnnVectorsWriter;
 import org.apache.lucene.document.KnnFloatVectorField;
 import org.apache.lucene.index.IndexableField;
-import org.apache.lucene.search.FieldExistsQuery;
 import org.apache.lucene.index.SegmentReadState;
 import org.apache.lucene.index.SegmentWriteState;
 import org.apache.lucene.index.VectorSimilarityFunction;
+import org.apache.lucene.search.FieldExistsQuery;
 import org.apache.lucene.search.Query;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 import org.elasticsearch.index.codec.KnnVectorsFormatProvider;
 import org.elasticsearch.index.mapper.DocumentParserContext;
 import org.elasticsearch.index.mapper.FieldMapper;
@@ -41,8 +39,6 @@ import java.util.Map;
 
 public class IvfPqVectorFieldMapper extends FieldMapper implements KnnVectorsFormatProvider {
 
-    private static final Logger logger = LogManager.getLogger(IvfPqVectorFieldMapper.class);
-
     public static final String CONTENT_TYPE = "ivfpq_vector";
     private static final int MAX_DIMS = 4096;
 
@@ -50,9 +46,9 @@ public class IvfPqVectorFieldMapper extends FieldMapper implements KnnVectorsFor
     private final VectorSimilarityFunction similarity;
     private final int nlist;
     private final int nprobe;
-    private final int m;
-    private final int nbits;
+    private final int sqBits;
     private final int trainingThreshold;
+    private final boolean rerank;
 
     private IvfPqVectorFieldMapper(
         String simpleName,
@@ -62,23 +58,23 @@ public class IvfPqVectorFieldMapper extends FieldMapper implements KnnVectorsFor
         VectorSimilarityFunction similarity,
         int nlist,
         int nprobe,
-        int m,
-        int nbits,
-        int trainingThreshold
+        int sqBits,
+        int trainingThreshold,
+        boolean rerank
     ) {
         super(simpleName, mappedFieldType, builderParams);
         this.dims = dims;
         this.similarity = similarity;
         this.nlist = nlist;
         this.nprobe = nprobe;
-        this.m = m;
-        this.nbits = nbits;
+        this.sqBits = sqBits;
         this.trainingThreshold = trainingThreshold;
+        this.rerank = rerank;
     }
 
     @Override
     public KnnVectorsFormat getKnnVectorsFormatForField(KnnVectorsFormat defaultFormat) {
-        IvfPqVectorsFormat format = new IvfPqVectorsFormat(nlist, nprobe, m, nbits, trainingThreshold, 20);
+        IvfPqVectorsFormat format = new IvfPqVectorsFormat(nlist, nprobe, sqBits, trainingThreshold, 20, rerank);
         return new KnnVectorsFormat(format.getName()) {
             @Override
             public KnnVectorsWriter fieldsWriter(SegmentWriteState state) throws IOException {
@@ -236,17 +232,22 @@ public class IvfPqVectorFieldMapper extends FieldMapper implements KnnVectorsFor
 
         private final Parameter<Integer> nlistParam = Parameter.intParam("nlist", true, b -> ((IvfPqVectorFieldMapper) b).nlist, 256);
 
-        private final Parameter<Integer> nprobeParam = Parameter.intParam("nprobe", true, b -> ((IvfPqVectorFieldMapper) b).nprobe, 16);
+        private final Parameter<Integer> nprobeParam = Parameter.intParam("nprobe", true, b -> ((IvfPqVectorFieldMapper) b).nprobe, 8);
 
-        private final Parameter<Integer> mParam = Parameter.intParam("m", false, b -> ((IvfPqVectorFieldMapper) b).m, 8);
-
-        private final Parameter<Integer> nbitsParam = Parameter.intParam("nbits", false, b -> ((IvfPqVectorFieldMapper) b).nbits, 8);
+        private final Parameter<Integer> sqBitsParam = Parameter.intParam("sq_bits", false, b -> ((IvfPqVectorFieldMapper) b).sqBits, 7);
 
         private final Parameter<Integer> trainingThresholdParam = Parameter.intParam(
             "training_threshold",
             true,
             b -> ((IvfPqVectorFieldMapper) b).trainingThreshold,
             1000
+        );
+
+        private final Parameter<Boolean> rerankParam = Parameter.boolParam(
+            "rerank",
+            true,
+            b -> ((IvfPqVectorFieldMapper) b).rerank,
+            false
         );
 
         private final Parameter<Map<String, String>> meta = Parameter.metaParam();
@@ -257,7 +258,9 @@ public class IvfPqVectorFieldMapper extends FieldMapper implements KnnVectorsFor
 
         @Override
         protected Parameter<?>[] getParameters() {
-            return new Parameter<?>[] { dims, similarityParam, nlistParam, nprobeParam, mParam, nbitsParam, trainingThresholdParam, meta };
+            return new Parameter<?>[] {
+                dims, similarityParam, nlistParam, nprobeParam, sqBitsParam, trainingThresholdParam, rerankParam, meta
+            };
         }
 
         private VectorSimilarityFunction parseSimilarity(String value) {
@@ -273,24 +276,12 @@ public class IvfPqVectorFieldMapper extends FieldMapper implements KnnVectorsFor
         @Override
         public IvfPqVectorFieldMapper build(MapperBuilderContext context) {
             int dimsVal = dims.getValue();
-            int mVal = mParam.getValue();
             int nlistVal = nlistParam.getValue();
             int nprobeVal = nprobeParam.getValue();
-            int nbitsVal = nbitsParam.getValue();
+            int sqBitsVal = sqBitsParam.getValue();
             int trainingThresholdVal = trainingThresholdParam.getValue();
             VectorSimilarityFunction sim = parseSimilarity(similarityParam.getValue());
 
-            if (sim != VectorSimilarityFunction.EUCLIDEAN) {
-                logger.warn(
-                    "IVF-PQ quantization uses L2 distance internally; similarity [{}] scoring will be approximate for field [{}]",
-                    similarityParam.getValue(),
-                    leafName()
-                );
-            }
-
-            if (mVal <= 0) {
-                throw new IllegalArgumentException("m must be > 0, got " + mVal);
-            }
             if (nlistVal <= 0) {
                 throw new IllegalArgumentException("nlist must be > 0, got " + nlistVal);
             }
@@ -300,14 +291,11 @@ public class IvfPqVectorFieldMapper extends FieldMapper implements KnnVectorsFor
             if (trainingThresholdVal <= 0) {
                 throw new IllegalArgumentException("training_threshold must be > 0, got " + trainingThresholdVal);
             }
-            if (dimsVal % mVal != 0) {
-                throw new IllegalArgumentException("dims [" + dimsVal + "] must be divisible by m [" + mVal + "]");
-            }
             if (nprobeVal > nlistVal) {
                 throw new IllegalArgumentException("nprobe [" + nprobeVal + "] must be <= nlist [" + nlistVal + "]");
             }
-            if (nbitsVal != 8) {
-                throw new IllegalArgumentException("Only nbits=8 is currently supported, got " + nbitsVal);
+            if (sqBitsVal != 4 && sqBitsVal != 7 && sqBitsVal != 8) {
+                throw new IllegalArgumentException("sq_bits must be 4, 7, or 8, got " + sqBitsVal);
             }
 
             IvfPqVectorFieldType fieldType = new IvfPqVectorFieldType(
@@ -325,9 +313,9 @@ public class IvfPqVectorFieldMapper extends FieldMapper implements KnnVectorsFor
                 sim,
                 nlistVal,
                 nprobeVal,
-                mVal,
-                nbitsVal,
-                trainingThresholdVal
+                sqBitsVal,
+                trainingThresholdVal,
+                rerankParam.getValue()
             );
         }
     }

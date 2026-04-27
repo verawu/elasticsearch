@@ -22,45 +22,50 @@ public class IvfPqVectorsFormat extends KnnVectorsFormat {
     static final String DATA_CODEC_NAME = "IvfPqVectorsFormatData";
     static final String META_EXTENSION = "ivfm";
     static final String DATA_EXTENSION = "ivfd";
-    static final int VERSION_START = 0;
-    static final int VERSION_CURRENT = VERSION_START;
+    static final int VERSION_START = 2;
+    static final int VERSION_CURRENT = 2;
 
     private final int nlist;
     private final int nprobe;
-    private final int m;
-    private final int nbits;
+    private final int sqBits;
     private final int trainingThreshold;
     private final int kmeansIters;
+    private final boolean rerank;
 
     public IvfPqVectorsFormat() {
-        this(256, 16, 8, 8, 1000, 20);
+        this(256, 16, 7, 1000, 20, false);
     }
 
-    public IvfPqVectorsFormat(int nlist, int nprobe, int m, int nbits, int trainingThreshold, int kmeansIters) {
+    public IvfPqVectorsFormat(int nlist, int nprobe, int sqBits, int trainingThreshold, int kmeansIters) {
+        this(nlist, nprobe, sqBits, trainingThreshold, kmeansIters, false);
+    }
+
+    public IvfPqVectorsFormat(int nlist, int nprobe, int sqBits, int trainingThreshold, int kmeansIters, boolean rerank) {
         super(NAME);
         if (nlist <= 0) throw new IllegalArgumentException("nlist must be positive, got " + nlist);
         if (nprobe <= 0) throw new IllegalArgumentException("nprobe must be positive, got " + nprobe);
-        if (m <= 0) throw new IllegalArgumentException("m must be positive, got " + m);
-        if (nbits <= 0) throw new IllegalArgumentException("nbits must be positive, got " + nbits);
+        if (sqBits != 4 && sqBits != 7 && sqBits != 8) {
+            throw new IllegalArgumentException("sqBits must be 4, 7, or 8, got " + sqBits);
+        }
         if (trainingThreshold <= 0) throw new IllegalArgumentException("trainingThreshold must be positive, got " + trainingThreshold);
         if (kmeansIters <= 0) throw new IllegalArgumentException("kmeansIters must be positive, got " + kmeansIters);
         if (nprobe > nlist) throw new IllegalArgumentException("nprobe (" + nprobe + ") must be <= nlist (" + nlist + ")");
         this.nlist = nlist;
         this.nprobe = nprobe;
-        this.m = m;
-        this.nbits = nbits;
+        this.sqBits = sqBits;
         this.trainingThreshold = trainingThreshold;
         this.kmeansIters = kmeansIters;
+        this.rerank = rerank;
     }
 
     @Override
     public KnnVectorsWriter fieldsWriter(SegmentWriteState state) throws IOException {
-        return new IvfPqVectorsWriter(state, nlist, m, nbits, trainingThreshold, kmeansIters);
+        return new IvfPqVectorsWriter(state, nlist, sqBits, trainingThreshold, kmeansIters);
     }
 
     @Override
     public KnnVectorsReader fieldsReader(SegmentReadState state) throws IOException {
-        return new IvfPqVectorsReader(state, nprobe);
+        return new IvfPqVectorsReader(state, nprobe, rerank);
     }
 
     @Override
@@ -70,6 +75,6 @@ public class IvfPqVectorsFormat extends KnnVectorsFormat {
 
     @Override
     public String toString() {
-        return NAME + "(nlist=" + nlist + ", nprobe=" + nprobe + ", m=" + m + ", nbits=" + nbits + ")";
+        return NAME + "(nlist=" + nlist + ", nprobe=" + nprobe + ", sqBits=" + sqBits + ")";
     }
 }

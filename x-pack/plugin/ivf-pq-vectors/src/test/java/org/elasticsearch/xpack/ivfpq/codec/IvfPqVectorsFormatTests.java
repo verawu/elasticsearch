@@ -14,12 +14,12 @@ import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
 import org.apache.lucene.document.KnnFloatVectorField;
 import org.apache.lucene.document.StringField;
-import org.apache.lucene.index.Term;
 import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.FloatVectorValues;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.IndexWriterConfig;
 import org.apache.lucene.index.LeafReader;
+import org.apache.lucene.index.Term;
 import org.apache.lucene.index.VectorSimilarityFunction;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.KnnFloatVectorQuery;
@@ -40,22 +40,21 @@ public class IvfPqVectorsFormatTests extends ESTestCase {
         LogConfigurator.configureESLogging();
     }
 
-    private Codec getCodec(int nlist, int nprobe, int m, int nbits, int trainingThreshold) {
+    private Codec getCodec(int nlist, int nprobe, int sqBits, int trainingThreshold) {
         return new Lucene912Codec() {
             @Override
             public KnnVectorsFormat getKnnVectorsFormatForField(String field) {
-                return new IvfPqVectorsFormat(nlist, nprobe, m, nbits, trainingThreshold, 20);
+                return new IvfPqVectorsFormat(nlist, nprobe, sqBits, trainingThreshold, 20);
             }
         };
     }
 
     public void testWriteAndReadFlatFallback() throws IOException {
-        // Small dataset below training threshold -> flat fallback
         int dims = 8;
         int nVectors = 10;
         try (Directory dir = newDirectory()) {
             IndexWriterConfig config = new IndexWriterConfig();
-            config.setCodec(getCodec(16, 4, 2, 8, 100)); // threshold 100 > nVectors
+            config.setCodec(getCodec(16, 4, 7, 100));
             try (IndexWriter writer = new IndexWriter(dir, config)) {
                 Random random = new Random(42);
                 for (int i = 0; i < nVectors; i++) {
@@ -86,13 +85,12 @@ public class IvfPqVectorsFormatTests extends ESTestCase {
         }
     }
 
-    public void testWriteAndReadIvfPq() throws IOException {
-        // Dataset above training threshold -> IVF_PQ
+    public void testWriteAndReadIvfSq() throws IOException {
         int dims = 16;
         int nVectors = 200;
         try (Directory dir = newDirectory()) {
             IndexWriterConfig config = new IndexWriterConfig();
-            config.setCodec(getCodec(8, 4, 4, 8, 50)); // threshold 50 < nVectors
+            config.setCodec(getCodec(8, 4, 7, 50));
             try (IndexWriter writer = new IndexWriter(dir, config)) {
                 Random random = new Random(42);
                 for (int i = 0; i < nVectors; i++) {
@@ -125,7 +123,7 @@ public class IvfPqVectorsFormatTests extends ESTestCase {
 
         try (Directory dir = newDirectory()) {
             IndexWriterConfig config = new IndexWriterConfig();
-            config.setCodec(getCodec(8, 4, 2, 8, 100)); // flat fallback
+            config.setCodec(getCodec(8, 4, 7, 100));
             try (IndexWriter writer = new IndexWriter(dir, config)) {
                 for (float[] vector : vectors) {
                     Document doc = new Document();
@@ -137,16 +135,15 @@ public class IvfPqVectorsFormatTests extends ESTestCase {
 
             try (DirectoryReader reader = DirectoryReader.open(dir)) {
                 IndexSearcher searcher = new IndexSearcher(reader);
-                float[] query = vectors[0]; // query with an indexed vector
+                float[] query = vectors[0];
                 TopDocs topDocs = searcher.search(new KnnFloatVectorQuery("vec", query, 5), 5);
                 assertTrue("Should return results", topDocs.scoreDocs.length > 0);
-                // First result should be the exact match (docId 0)
                 assertEquals(0, topDocs.scoreDocs[0].doc);
             }
         }
     }
 
-    public void testSearchIvfPq() throws IOException {
+    public void testSearchIvfSq() throws IOException {
         int dims = 16;
         int nVectors = 200;
         float[][] vectors = new float[nVectors][dims];
@@ -157,7 +154,7 @@ public class IvfPqVectorsFormatTests extends ESTestCase {
 
         try (Directory dir = newDirectory()) {
             IndexWriterConfig config = new IndexWriterConfig();
-            config.setCodec(getCodec(8, 8, 4, 8, 50)); // IVF_PQ (nprobe=8 = all clusters for good recall)
+            config.setCodec(getCodec(8, 8, 7, 50));
             try (IndexWriter writer = new IndexWriter(dir, config)) {
                 for (float[] vector : vectors) {
                     Document doc = new Document();
@@ -172,7 +169,6 @@ public class IvfPqVectorsFormatTests extends ESTestCase {
                 float[] query = vectors[0];
                 TopDocs topDocs = searcher.search(new KnnFloatVectorQuery("vec", query, 10), 10);
                 assertTrue("Should return results", topDocs.scoreDocs.length > 0);
-                // With nprobe = nlist, doc 0 should be in top results (approximate search)
                 boolean foundExact = false;
                 for (var scoreDoc : topDocs.scoreDocs) {
                     if (scoreDoc.doc == 0) {
@@ -190,10 +186,9 @@ public class IvfPqVectorsFormatTests extends ESTestCase {
         int nVectorsPerSegment = 100;
         try (Directory dir = newDirectory()) {
             IndexWriterConfig config = new IndexWriterConfig();
-            config.setCodec(getCodec(8, 4, 4, 8, 50));
+            config.setCodec(getCodec(8, 4, 7, 50));
             try (IndexWriter writer = new IndexWriter(dir, config)) {
                 Random random = new Random(42);
-                // Write two segments
                 for (int seg = 0; seg < 2; seg++) {
                     for (int i = 0; i < nVectorsPerSegment; i++) {
                         Document doc = new Document();
@@ -202,7 +197,6 @@ public class IvfPqVectorsFormatTests extends ESTestCase {
                     }
                     writer.commit();
                 }
-                // Force merge
                 writer.forceMerge(1);
                 writer.commit();
             }
@@ -228,7 +222,7 @@ public class IvfPqVectorsFormatTests extends ESTestCase {
 
         try (Directory dir = newDirectory()) {
             IndexWriterConfig config = new IndexWriterConfig();
-            config.setCodec(getCodec(8, 8, 4, 8, 50));
+            config.setCodec(getCodec(8, 8, 7, 50));
             try (IndexWriter writer = new IndexWriter(dir, config)) {
                 for (int i = 0; i < nVectors; i++) {
                     Document doc = new Document();
@@ -270,7 +264,7 @@ public class IvfPqVectorsFormatTests extends ESTestCase {
 
         try (Directory dir = newDirectory()) {
             IndexWriterConfig config = new IndexWriterConfig();
-            config.setCodec(getCodec(8, 8, 2, 8, 100));
+            config.setCodec(getCodec(8, 8, 7, 100));
             try (IndexWriter writer = new IndexWriter(dir, config)) {
                 for (int i = 0; i < nVectors; i++) {
                     Document doc = new Document();
@@ -302,18 +296,17 @@ public class IvfPqVectorsFormatTests extends ESTestCase {
     }
 
     public void testToString() {
-        IvfPqVectorsFormat format = new IvfPqVectorsFormat(256, 16, 8, 8, 1000, 20);
-        assertEquals("IvfPqVectorsFormat(nlist=256, nprobe=16, m=8, nbits=8)", format.toString());
+        IvfPqVectorsFormat format = new IvfPqVectorsFormat(256, 16, 7, 1000, 20);
+        assertEquals("IvfPqVectorsFormat(nlist=256, nprobe=16, sqBits=7)", format.toString());
     }
 
     public void testFormatConstructorValidation() {
-        expectThrows(IllegalArgumentException.class, () -> new IvfPqVectorsFormat(0, 16, 8, 8, 1000, 20));
-        expectThrows(IllegalArgumentException.class, () -> new IvfPqVectorsFormat(256, 0, 8, 8, 1000, 20));
-        expectThrows(IllegalArgumentException.class, () -> new IvfPqVectorsFormat(256, 16, 0, 8, 1000, 20));
-        expectThrows(IllegalArgumentException.class, () -> new IvfPqVectorsFormat(256, 16, 8, 0, 1000, 20));
-        expectThrows(IllegalArgumentException.class, () -> new IvfPqVectorsFormat(256, 16, 8, 8, 0, 20));
-        expectThrows(IllegalArgumentException.class, () -> new IvfPqVectorsFormat(256, 16, 8, 8, 1000, 0));
-        expectThrows(IllegalArgumentException.class, () -> new IvfPqVectorsFormat(4, 8, 8, 8, 1000, 20));
+        expectThrows(IllegalArgumentException.class, () -> new IvfPqVectorsFormat(0, 16, 7, 1000, 20));
+        expectThrows(IllegalArgumentException.class, () -> new IvfPqVectorsFormat(256, 0, 7, 1000, 20));
+        expectThrows(IllegalArgumentException.class, () -> new IvfPqVectorsFormat(256, 16, 3, 1000, 20));
+        expectThrows(IllegalArgumentException.class, () -> new IvfPqVectorsFormat(256, 16, 7, 0, 20));
+        expectThrows(IllegalArgumentException.class, () -> new IvfPqVectorsFormat(256, 16, 7, 1000, 0));
+        expectThrows(IllegalArgumentException.class, () -> new IvfPqVectorsFormat(4, 8, 7, 1000, 20));
     }
 
     private static float[] randomVector(int dims, Random random) {

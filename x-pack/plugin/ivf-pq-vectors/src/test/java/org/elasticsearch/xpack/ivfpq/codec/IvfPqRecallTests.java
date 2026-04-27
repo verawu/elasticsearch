@@ -38,11 +38,11 @@ public class IvfPqRecallTests extends ESTestCase {
         LogConfigurator.configureESLogging();
     }
 
-    private Codec getCodec(int nlist, int nprobe, int m, int nbits, int trainingThreshold) {
+    private Codec getCodec(int nlist, int nprobe, int sqBits, int trainingThreshold) {
         return new Lucene912Codec() {
             @Override
             public KnnVectorsFormat getKnnVectorsFormatForField(String field) {
-                return new IvfPqVectorsFormat(nlist, nprobe, m, nbits, trainingThreshold, 20);
+                return new IvfPqVectorsFormat(nlist, nprobe, sqBits, trainingThreshold, 20);
             }
         };
     }
@@ -54,7 +54,6 @@ public class IvfPqRecallTests extends ESTestCase {
         int k = 10;
         int nlist = 32;
         int nprobe = 16;
-        int m = 8;
 
         Random random = new Random(42);
         float[][] vectors = new float[nVectors][dims];
@@ -64,7 +63,7 @@ public class IvfPqRecallTests extends ESTestCase {
 
         try (Directory dir = newDirectory()) {
             IndexWriterConfig config = new IndexWriterConfig();
-            config.setCodec(getCodec(nlist, nprobe, m, 8, 100));
+            config.setCodec(getCodec(nlist, nprobe, 7, 100));
             try (IndexWriter writer = new IndexWriter(dir, config)) {
                 for (float[] vector : vectors) {
                     Document doc = new Document();
