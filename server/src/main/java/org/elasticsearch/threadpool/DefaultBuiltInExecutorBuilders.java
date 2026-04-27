@@ -154,7 +154,7 @@ public class DefaultBuiltInExecutorBuilders implements BuiltInExecutorBuilders {
         }
         result.put(
             ThreadPool.Names.VECTOR_BUILD,
-            new ScalingExecutorBuilder(ThreadPool.Names.VECTOR_BUILD, 1, halfProcMaxAt5, TimeValue.timeValueMinutes(5), false)
+            new ScalingExecutorBuilder(ThreadPool.Names.VECTOR_BUILD, 1, allocatedProcessors, TimeValue.timeValueMinutes(5), false)
         );
         result.put(
             ThreadPool.Names.FORCE_MERGE,

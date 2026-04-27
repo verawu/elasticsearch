@@ -204,8 +204,7 @@ public class VectorBuildExecutorService implements Closeable {
     }
 
     static int defaultMaxConcurrent() {
-        int procs = Runtime.getRuntime().availableProcessors();
-        return Math.max(1, Math.min((procs + 1) / 2, 5));
+        return Runtime.getRuntime().availableProcessors();
     }
 
     @Override
