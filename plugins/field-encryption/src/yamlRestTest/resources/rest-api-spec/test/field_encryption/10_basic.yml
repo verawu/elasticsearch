@@ -1,0 +1,124 @@
+---
+"Test ingest processor encrypts source field":
+  - do:
+      ingest.put_pipeline:
+        id: "encrypt-pipeline"
+        body:
+          processors:
+            - field_encrypt:
+                fields: ["email", "phone"]
+                key_id: "test-key"
+
+  - do:
+      indices.create:
+        index: test-encrypt
+        body:
+          settings:
+            index.encryption.key_id: "test-key"
+          mappings:
+            properties:
+              email:
+                type: keyword
+              phone:
+                type: keyword
+              name:
+                type: text
+
+  - do:
+      index:
+        index: test-encrypt
+        id: "1"
+        pipeline: "encrypt-pipeline"
+        body:
+          email: "alice@example.com"
+          phone: "+1234567890"
+          name: "Alice Smith"
+
+  - do:
+      get:
+        index: test-encrypt
+        id: "1"
+
+  - match: { _source.name: "Alice Smith" }
+  - match: { _source.email: "/enc:v1:test-key:.+/" }
+  - match: { _source.phone: "/enc:v1:test-key:.+/" }
+
+---
+"Test HMAC token filter produces deterministic tokens":
+  - do:
+      indices.create:
+        index: test-hmac
+        body:
+          settings:
+            index.encryption.key_id: "test-key"
+            analysis:
+              filter:
+                hmac_filter:
+                  type: hmac_encrypt
+                  key_id: "test-key"
+              analyzer:
+                hmac_analyzer:
+                  tokenizer: keyword
+                  filter:
+                    - hmac_filter
+          mappings:
+            properties:
+              email:
+                type: text
+                analyzer: hmac_analyzer
+
+  - do:
+      indices.analyze:
+        index: test-hmac
+        body:
+          analyzer: hmac_analyzer
+          text: "alice@example.com"
+
+  - length: { tokens: 1 }
+  # Token should be 64-char hex (HMAC-SHA256 output)
+  - match: { tokens.0.token: "/[0-9a-f]{64}/" }
+
+---
+"Test encrypted term query matches HMAC-indexed document":
+  - do:
+      indices.create:
+        index: test-search
+        body:
+          settings:
+            index.encryption.key_id: "test-key"
+            analysis:
+              filter:
+                hmac_filter:
+                  type: hmac_encrypt
+                  key_id: "test-key"
+              analyzer:
+                hmac_keyword:
+                  tokenizer: keyword
+                  filter:
+                    - hmac_filter
+          mappings:
+            properties:
+              email:
+                type: text
+                analyzer: hmac_keyword
+
+  - do:
+      index:
+        index: test-search
+        id: "1"
+        body:
+          email: "alice@example.com"
+        refresh: true
+
+  - do:
+      search:
+        index: test-search
+        body:
+          query:
+            encrypted_term:
+              field: email
+              value: "alice@example.com"
+              key_id: "test-key"
+
+  - match: { hits.total.value: 1 }
+  - match: { hits.hits.0._id: "1" }
