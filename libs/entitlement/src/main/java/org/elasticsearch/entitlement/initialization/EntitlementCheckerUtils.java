@@ -21,7 +21,7 @@ class EntitlementCheckerUtils {
         String baseClassName = baseClass.getSimpleName();
 
         final String classNamePrefix;
-        if (javaVersion < 19) {
+        if (javaVersion < 21) {
             // For older Java versions, the basic EntitlementChecker interface and implementation contains all the supported checks
             classNamePrefix = "";
         } else if (javaVersion < 23) {

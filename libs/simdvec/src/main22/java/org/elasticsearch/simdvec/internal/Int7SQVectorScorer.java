@@ -18,20 +18,30 @@ import org.apache.lucene.util.hnsw.RandomVectorScorer;
 import org.apache.lucene.util.quantization.RandomAccessQuantizedByteVectorValues;
 import org.apache.lucene.util.quantization.ScalarQuantizer;
 
+import org.elasticsearch.simdvec.BatchVectorScorer;
+
 import java.io.IOException;
+import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
 import java.util.Optional;
 
 import static org.elasticsearch.simdvec.internal.Similarities.dotProduct7u;
+import static org.elasticsearch.simdvec.internal.Similarities.dotProductBatch7u;
 import static org.elasticsearch.simdvec.internal.Similarities.squareDistance7u;
+import static org.elasticsearch.simdvec.internal.Similarities.squareDistanceBatch7u;
 
-public abstract sealed class Int7SQVectorScorer extends RandomVectorScorer.AbstractRandomVectorScorer {
+public abstract sealed class Int7SQVectorScorer extends RandomVectorScorer.AbstractRandomVectorScorer implements BatchVectorScorer {
 
     final int vectorByteSize;
     final MemorySegmentAccessInput input;
     final MemorySegment query;
     final float scoreCorrectionConstant;
     final float queryCorrection;
+    final MemorySegment batchResultsSeg = Arena.ofAuto().allocate(
+        ValueLayout.JAVA_INT.byteSize() * BatchVectorScorer.MAX_BATCH_SIZE,
+        ValueLayout.JAVA_INT.byteAlignment()
+    );
     byte[] scratch;
 
     /** Return an optional whose value, if present, is the scorer. Otherwise, an empty optional is returned. */
@@ -73,7 +83,9 @@ public abstract sealed class Int7SQVectorScorer extends RandomVectorScorer.Abstr
         this.input = input;
         assert queryVector.length == values.getVectorByteLength();
         this.vectorByteSize = values.getVectorByteLength();
-        this.query = MemorySegment.ofArray(queryVector);
+        var nativeQuery = Arena.ofAuto().allocate(queryVector.length);
+        nativeQuery.copyFrom(MemorySegment.ofArray(queryVector));
+        this.query = nativeQuery;
         this.queryCorrection = queryCorrection;
         this.scoreCorrectionConstant = values.getScalarQuantizer().getConstantMultiplier();
     }
@@ -104,6 +116,18 @@ public abstract sealed class Int7SQVectorScorer extends RandomVectorScorer.Abstr
         }
     }
 
+    /**
+     * Scores a contiguous range of ordinals [startOrd, startOrd+count) in a single native batch call.
+     * Returns the number of ordinals scored, or -1 if the range cannot be batch-scored
+     * (e.g., it spans a memory segment boundary).
+     */
+    @Override
+    public int scoreBatch(int startOrd, int count, float[] results) throws IOException {
+        checkOrdinal(startOrd);
+        checkOrdinal(startOrd + count - 1);
+        return -1;
+    }
+
     public static final class DotProductScorer extends Int7SQVectorScorer {
         public DotProductScorer(MemorySegmentAccessInput in, RandomAccessQuantizedByteVectorValues values, byte[] query, float correction) {
             super(in, values, query, correction);
@@ -119,6 +143,27 @@ public abstract sealed class Int7SQVectorScorer extends RandomVectorScorer.Abstr
             float adjustedDistance = dotProduct * scoreCorrectionConstant + queryCorrection + nodeCorrection;
             return Math.max((1 + adjustedDistance) / 2, 0f);
         }
+
+        @Override
+        public int scoreBatch(int startOrd, int count, float[] results) throws IOException {
+            int stride = vectorByteSize + Float.BYTES;
+            long startByteOffset = (long) startOrd * stride;
+            long totalBytes = (long) count * stride;
+            MemorySegment docsSeg = input.segmentSliceOrNull(startByteOffset, totalBytes);
+            if (docsSeg == null) {
+                return -1;
+            }
+            dotProductBatch7u(query, docsSeg, vectorByteSize, stride, count, batchResultsSeg);
+            for (int i = 0; i < count; i++) {
+                int dotProduct = batchResultsSeg.getAtIndex(ValueLayout.JAVA_INT, i);
+                assert dotProduct >= 0;
+                long byteOffset = startByteOffset + (long) i * stride + vectorByteSize;
+                float nodeCorrection = Float.intBitsToFloat(input.readInt(byteOffset));
+                float adjustedDistance = dotProduct * scoreCorrectionConstant + queryCorrection + nodeCorrection;
+                results[i] = Math.max((1 + adjustedDistance) / 2, 0f);
+            }
+            return count;
+        }
     }
 
     public static final class EuclideanScorer extends Int7SQVectorScorer {
@@ -132,6 +177,23 @@ public abstract sealed class Int7SQVectorScorer extends RandomVectorScorer.Abstr
             int sqDist = squareDistance7u(query, getSegment(node), vectorByteSize);
             float adjustedDistance = sqDist * scoreCorrectionConstant;
             return 1 / (1f + adjustedDistance);
+        }
+
+        @Override
+        public int scoreBatch(int startOrd, int count, float[] results) throws IOException {
+            int stride = vectorByteSize + Float.BYTES;
+            long startByteOffset = (long) startOrd * stride;
+            long totalBytes = (long) count * stride;
+            MemorySegment docsSeg = input.segmentSliceOrNull(startByteOffset, totalBytes);
+            if (docsSeg == null) {
+                return -1;
+            }
+            squareDistanceBatch7u(query, docsSeg, vectorByteSize, stride, count, batchResultsSeg);
+            for (int i = 0; i < count; i++) {
+                float adjustedDistance = batchResultsSeg.getAtIndex(ValueLayout.JAVA_INT, i) * scoreCorrectionConstant;
+                results[i] = 1 / (1f + adjustedDistance);
+            }
+            return count;
         }
     }
 
@@ -152,6 +214,31 @@ public abstract sealed class Int7SQVectorScorer extends RandomVectorScorer.Abstr
                 return 1 / (1 + -1 * adjustedDistance);
             }
             return adjustedDistance + 1;
+        }
+
+        @Override
+        public int scoreBatch(int startOrd, int count, float[] results) throws IOException {
+            int stride = vectorByteSize + Float.BYTES;
+            long startByteOffset = (long) startOrd * stride;
+            long totalBytes = (long) count * stride;
+            MemorySegment docsSeg = input.segmentSliceOrNull(startByteOffset, totalBytes);
+            if (docsSeg == null) {
+                return -1;
+            }
+            dotProductBatch7u(query, docsSeg, vectorByteSize, stride, count, batchResultsSeg);
+            for (int i = 0; i < count; i++) {
+                int dotProduct = batchResultsSeg.getAtIndex(ValueLayout.JAVA_INT, i);
+                assert dotProduct >= 0;
+                long byteOffset = startByteOffset + (long) i * stride + vectorByteSize;
+                float nodeCorrection = Float.intBitsToFloat(input.readInt(byteOffset));
+                float adjustedDistance = dotProduct * scoreCorrectionConstant + queryCorrection + nodeCorrection;
+                if (adjustedDistance < 0) {
+                    results[i] = 1 / (1 + -1 * adjustedDistance);
+                } else {
+                    results[i] = adjustedDistance + 1;
+                }
+            }
+            return count;
         }
     }
 

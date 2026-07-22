@@ -23,6 +23,8 @@ public class Similarities {
 
     static final MethodHandle DOT_PRODUCT_7U = DISTANCE_FUNCS.dotProductHandle7u();
     static final MethodHandle SQUARE_DISTANCE_7U = DISTANCE_FUNCS.squareDistanceHandle7u();
+    static final MethodHandle DOT_PRODUCT_BATCH_7U = DISTANCE_FUNCS.dotProductBatchHandle7u();
+    static final MethodHandle SQUARE_DISTANCE_BATCH_7U = DISTANCE_FUNCS.squareDistanceBatchHandle7u();
 
     static int dotProduct7u(MemorySegment a, MemorySegment b, int length) {
         try {
@@ -41,6 +43,34 @@ public class Similarities {
     static int squareDistance7u(MemorySegment a, MemorySegment b, int length) {
         try {
             return (int) SQUARE_DISTANCE_7U.invokeExact(a, b, length);
+        } catch (Throwable e) {
+            if (e instanceof Error err) {
+                throw err;
+            } else if (e instanceof RuntimeException re) {
+                throw re;
+            } else {
+                throw new RuntimeException(e);
+            }
+        }
+    }
+
+    static void dotProductBatch7u(MemorySegment query, MemorySegment docs, int dims, int stride, int count, MemorySegment results) {
+        try {
+            DOT_PRODUCT_BATCH_7U.invokeExact(query, docs, dims, stride, count, results);
+        } catch (Throwable e) {
+            if (e instanceof Error err) {
+                throw err;
+            } else if (e instanceof RuntimeException re) {
+                throw re;
+            } else {
+                throw new RuntimeException(e);
+            }
+        }
+    }
+
+    static void squareDistanceBatch7u(MemorySegment query, MemorySegment docs, int dims, int stride, int count, MemorySegment results) {
+        try {
+            SQUARE_DISTANCE_BATCH_7U.invokeExact(query, docs, dims, stride, count, results);
         } catch (Throwable e) {
             if (e instanceof Error err) {
                 throw err;

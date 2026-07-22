@@ -27,6 +27,7 @@ import org.apache.lucene.search.KnnCollector;
 import org.apache.lucene.util.Bits;
 import org.apache.lucene.util.hnsw.OrdinalTranslatedKnnCollector;
 import org.apache.lucene.util.hnsw.RandomVectorScorer;
+import org.elasticsearch.simdvec.BatchVectorScorer;
 
 import java.io.IOException;
 
@@ -142,13 +143,42 @@ public class ES813Int8FlatVectorFormat extends KnnVectorsFormat {
         private void collectAllMatchingDocs(KnnCollector knnCollector, Bits acceptDocs, RandomVectorScorer scorer) throws IOException {
             OrdinalTranslatedKnnCollector collector = new OrdinalTranslatedKnnCollector(knnCollector, scorer::ordToDoc);
             Bits acceptedOrds = scorer.getAcceptOrds(acceptDocs);
-            for (int i = 0; i < scorer.maxOrd(); i++) {
-                if (acceptedOrds == null || acceptedOrds.get(i)) {
-                    collector.collect(i, scorer.score(i));
-                    collector.incVisitedCount(1);
+            if (acceptedOrds == null && scorer instanceof BatchVectorScorer batchScorer) {
+                collectBatched(collector, scorer, batchScorer);
+            } else {
+                for (int i = 0; i < scorer.maxOrd(); i++) {
+                    if (acceptedOrds == null || acceptedOrds.get(i)) {
+                        collector.collect(i, scorer.score(i));
+                        collector.incVisitedCount(1);
+                    }
                 }
             }
             assert collector.earlyTerminated() == false;
+        }
+
+        private static void collectBatched(
+            OrdinalTranslatedKnnCollector collector,
+            RandomVectorScorer scorer,
+            BatchVectorScorer batchScorer
+        ) throws IOException {
+            int maxOrd = scorer.maxOrd();
+            float[] batchResults = new float[BatchVectorScorer.MAX_BATCH_SIZE];
+            int i = 0;
+            while (i < maxOrd) {
+                int count = Math.min(BatchVectorScorer.MAX_BATCH_SIZE, maxOrd - i);
+                int scored = batchScorer.scoreBatch(i, count, batchResults);
+                if (scored > 0) {
+                    for (int j = 0; j < scored; j++) {
+                        collector.collect(i + j, batchResults[j]);
+                        collector.incVisitedCount(1);
+                    }
+                    i += scored;
+                } else {
+                    collector.collect(i, scorer.score(i));
+                    collector.incVisitedCount(1);
+                    i++;
+                }
+            }
         }
 
         @Override

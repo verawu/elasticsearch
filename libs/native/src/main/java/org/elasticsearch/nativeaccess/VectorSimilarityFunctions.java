@@ -40,4 +40,23 @@ public interface VectorSimilarityFunctions {
      * vector data bytes. The third argument is the length of the vector data.
      */
     MethodHandle squareDistanceHandle7u();
+
+    /**
+     * Produces a method handle for computing dot products of a query against multiple
+     * contiguous document vectors in a single native call.
+     *
+     * <p> The type of the method handle will have {@code void} as return type. Arguments:
+     * {@code MemorySegment} query, {@code MemorySegment} docs (first doc start),
+     * {@code int} dims, {@code int} stride (bytes between doc starts),
+     * {@code int} count, {@code MemorySegment} results (output int32 array).
+     */
+    MethodHandle dotProductBatchHandle7u();
+
+    /**
+     * Produces a method handle for computing square distances of a query against multiple
+     * contiguous document vectors in a single native call.
+     *
+     * <p> Same signature as {@link #dotProductBatchHandle7u()}.
+     */
+    MethodHandle squareDistanceBatchHandle7u();
 }
