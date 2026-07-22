@@ -60,6 +60,8 @@ public final class EngineConfig {
     private final ThreadPool threadPool;
     @Nullable
     private final ThreadPoolMergeExecutorService threadPoolMergeExecutorService;
+    @Nullable
+    private final VectorBuildExecutorService vectorBuildExecutorService;
     private final Engine.Warmer warmer;
     private final Store store;
     private final MergePolicy mergePolicy;
@@ -153,6 +155,7 @@ public final class EngineConfig {
         ShardId shardId,
         ThreadPool threadPool,
         ThreadPoolMergeExecutorService threadPoolMergeExecutorService,
+        VectorBuildExecutorService vectorBuildExecutorService,
         IndexSettings indexSettings,
         Engine.Warmer warmer,
         Store store,
@@ -183,6 +186,7 @@ public final class EngineConfig {
         this.indexSettings = indexSettings;
         this.threadPool = threadPool;
         this.threadPoolMergeExecutorService = threadPoolMergeExecutorService;
+        this.vectorBuildExecutorService = vectorBuildExecutorService;
         this.warmer = warmer == null ? (a) -> {} : warmer;
         this.store = store;
         this.mergePolicy = mergePolicy;
@@ -293,6 +297,10 @@ public final class EngineConfig {
 
     public @Nullable ThreadPoolMergeExecutorService getThreadPoolMergeExecutorService() {
         return threadPoolMergeExecutorService;
+    }
+
+    public @Nullable VectorBuildExecutorService getVectorBuildExecutorService() {
+        return vectorBuildExecutorService;
     }
 
     /**

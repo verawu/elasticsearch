@@ -181,6 +181,9 @@ public class InternalEngine extends Engine {
     // An index request is considered as an update if it overwrites existing documents with the same docId in the Lucene index.
     // The value of this marker never goes backwards, and is tracked/updated differently on primary and replica.
     private final AtomicLong maxSeqNoOfUpdatesOrDeletes;
+    @Nullable
+    private final VectorBuildExecutorService vectorBuildExecutorService;
+    private final AtomicBoolean vectorBuildThrottleActive = new AtomicBoolean(false);
     private final CounterMetric numVersionLookups = new CounterMetric();
     private final CounterMetric numIndexVersionsLookups = new CounterMetric();
     // Lucene operations since this engine was opened - not include operations from existing segments.
@@ -261,6 +264,7 @@ public class InternalEngine extends Engine {
             );
             scheduler = mergeScheduler.getMergeScheduler();
             throttle = new IndexThrottle();
+            vectorBuildExecutorService = engineConfig.getVectorBuildExecutorService();
             try {
                 store.trimUnsafeCommits(config().getTranslogConfig().getTranslogPath());
                 translog = openTranslog(
@@ -1145,6 +1149,16 @@ public class InternalEngine extends Engine {
     @Override
     public IndexResult index(Index index) throws IOException {
         final boolean doThrottle = index.origin().isRecovery() == false;
+        if (doThrottle && vectorBuildExecutorService != null) {
+            boolean shouldThrottle = vectorBuildExecutorService.shouldThrottleIndexing(shardId.getIndexName());
+            if (shouldThrottle && vectorBuildThrottleActive.compareAndSet(false, true)) {
+                logger.info("vector graph build queue saturated, throttling indexing");
+                activateThrottling();
+            } else if (shouldThrottle == false && vectorBuildThrottleActive.compareAndSet(true, false)) {
+                logger.info("vector graph build queue drained, resuming normal indexing");
+                deactivateThrottling();
+            }
+        }
         try (var ignored1 = acquireEnsureOpenRef()) {
             assert assertIncomingSequenceNumber(index.origin(), index.seqNo());
             int reservedDocs = 0;

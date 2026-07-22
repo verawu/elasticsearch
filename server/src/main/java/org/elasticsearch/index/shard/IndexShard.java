@@ -97,6 +97,7 @@ import org.elasticsearch.index.engine.SafeCommitInfo;
 import org.elasticsearch.index.engine.Segment;
 import org.elasticsearch.index.engine.SegmentsStats;
 import org.elasticsearch.index.engine.ThreadPoolMergeExecutorService;
+import org.elasticsearch.index.engine.VectorBuildExecutorService;
 import org.elasticsearch.index.fielddata.FieldDataStats;
 import org.elasticsearch.index.fielddata.ShardFieldData;
 import org.elasticsearch.index.flush.FlushStats;
@@ -198,6 +199,8 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
     private final ThreadPool threadPool;
     @Nullable
     private final ThreadPoolMergeExecutorService threadPoolMergeExecutorService;
+    @Nullable
+    private final VectorBuildExecutorService vectorBuildExecutorService;
     private final MapperService mapperService;
     private final IndexCache indexCache;
     private final Store store;
@@ -322,6 +325,7 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
         final CheckedFunction<DirectoryReader, DirectoryReader, IOException> indexReaderWrapper,
         final ThreadPool threadPool,
         final ThreadPoolMergeExecutorService threadPoolMergeExecutorService,
+        final VectorBuildExecutorService vectorBuildExecutorService,
         final BigArrays bigArrays,
         final Engine.Warmer warmer,
         final List<SearchOperationListener> searchOperationListener,
@@ -338,7 +342,8 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
         assert shardRouting.initializing();
         this.shardRouting = shardRouting;
         final Settings settings = indexSettings.getSettings();
-        this.codecService = new CodecService(mapperService, bigArrays);
+        boolean deferredVectorBuild = VectorBuildExecutorService.DEFERRED_VECTOR_BUILD_ENABLED_SETTING.get(settings);
+        this.codecService = new CodecService(mapperService, bigArrays, deferredVectorBuild ? vectorBuildExecutorService : null);
         this.warmer = warmer;
         this.similarityService = similarityService;
         Objects.requireNonNull(store, "Store must be provided to the index shard");
@@ -349,6 +354,7 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
         this.indexEventListener = indexEventListener;
         this.threadPool = threadPool;
         this.threadPoolMergeExecutorService = threadPoolMergeExecutorService;
+        this.vectorBuildExecutorService = deferredVectorBuild ? vectorBuildExecutorService : null;
         this.mapperService = mapperService;
         this.indexCache = indexCache;
         this.internalIndexingStats = new InternalIndexingStats();
@@ -1457,7 +1463,11 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
     public DenseVectorStats denseVectorStats() {
         readAllowed();
         MappingLookup mappingLookup = mapperService != null ? mapperService.mappingLookup() : null;
-        return getEngine().denseVectorStats(mappingLookup);
+        DenseVectorStats stats = getEngine().denseVectorStats(mappingLookup);
+        if (vectorBuildExecutorService != null) {
+            stats.setVectorBuildStats(vectorBuildExecutorService.stats());
+        }
+        return stats;
     }
 
     public SparseVectorStats sparseVectorStats() {
@@ -3521,6 +3531,7 @@ public class IndexShard extends AbstractIndexShardComponent implements IndicesCl
             shardId,
             threadPool,
             threadPoolMergeExecutorService,
+            vectorBuildExecutorService,
             indexSettings,
             warmer,
             store,

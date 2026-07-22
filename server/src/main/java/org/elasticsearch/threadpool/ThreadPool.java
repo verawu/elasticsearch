@@ -136,6 +136,7 @@ public class ThreadPool implements ReportingService<ThreadPoolInfo>, Scheduler {
         public static final String SNAPSHOT = "snapshot";
         public static final String SNAPSHOT_META = "snapshot_meta";
         public static final String MERGE = "merge";
+        public static final String VECTOR_BUILD = "vector_build";
         public static final String FORCE_MERGE = "force_merge";
         public static final String FETCH_SHARD_STARTED = "fetch_shard_started";
         public static final String FETCH_SHARD_STORE = "fetch_shard_store";

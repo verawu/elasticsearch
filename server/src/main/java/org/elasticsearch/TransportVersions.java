@@ -136,6 +136,7 @@ public class TransportVersions {
     public static final TransportVersion LOGSDB_TELEMETRY_CUSTOM_CUTOFF_DATE_FIX_8_17 = def(8_797_0_01);
     public static final TransportVersion SOURCE_MODE_TELEMETRY_FIX_8_17 = def(8_797_0_02);
     public static final TransportVersion V_8_18_0 = def(8_840_0_00);
+    public static final TransportVersion VECTOR_BUILD_STATS_IN_DENSE_VECTOR = def(8_841_0_00);
 
     /*
      * STOP! READ THIS FIRST! No, really,

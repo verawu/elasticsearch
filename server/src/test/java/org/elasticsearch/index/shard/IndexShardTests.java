@@ -5003,6 +5003,7 @@ public class IndexShardTests extends IndexShardTestCase {
                 config.getShardId(),
                 config.getThreadPool(),
                 config.getThreadPoolMergeExecutorService(),
+                null,
                 config.getIndexSettings(),
                 warmer,
                 config.getStore(),

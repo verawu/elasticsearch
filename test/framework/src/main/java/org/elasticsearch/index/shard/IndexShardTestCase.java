@@ -549,6 +549,7 @@ public abstract class IndexShardTestCase extends ESTestCase {
                 indexReaderWrapper,
                 threadPool,
                 threadPoolMergeExecutorService,
+                null,
                 BigArrays.NON_RECYCLING_INSTANCE,
                 warmer,
                 Collections.emptyList(),

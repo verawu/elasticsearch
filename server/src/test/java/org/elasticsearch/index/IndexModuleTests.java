@@ -225,6 +225,7 @@ public class IndexModuleTests extends ESTestCase {
             bigArrays,
             threadPool,
             threadPoolMergeExecutorService,
+            null,
             scriptService,
             clusterService,
             null,
